@@ -4,14 +4,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/lib/context';
+import { useLanguage } from '@/lib/language-context';
 import { US_CITIES } from '@/lib/data';
+import LanguageSwitcher from '@/components/ui/LanguageSwitcher';
 
-const navLinks = [
-  { href: '/directory', label: 'Directory' },
-  { href: '/events', label: 'Events' },
-  { href: '/housing', label: 'Housing' },
-  { href: '/jobs', label: 'Jobs' },
-];
+const NAV_HREFS = ['/directory', '/events', '/housing', '/jobs'] as const;
+const NAV_KEYS = ['directory', 'events', 'housing', 'jobs'] as const;
 
 function CityDropdown({
   selectedCity,
@@ -165,6 +163,7 @@ function UserMenu({ user, onLogout }: { user: { name: string; role: string }; on
 export default function Header() {
   const pathname = usePathname();
   const { user, logout, selectedCity, setSelectedCity, setSelectedState } = useApp();
+  const { t } = useLanguage();
   const [showCityDropdown, setShowCityDropdown] = useState(false);
 
   const handleSelectCity = (city: string, state: string) => {
@@ -193,23 +192,23 @@ export default function Header() {
 
             {/* Desktop nav */}
             <nav className="hidden md:flex items-center gap-1 flex-1 justify-center">
-              {navLinks.map((link) => {
-                const active = pathname.startsWith(link.href);
+              {NAV_HREFS.map((href, i) => {
+                const active = pathname.startsWith(href);
                 return (
                   <Link
-                    key={link.href}
-                    href={link.href}
+                    key={href}
+                    href={href}
                     className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                       active ? 'bg-[#1B4332] text-white' : 'text-gray-600 hover:text-[#1B4332] hover:bg-[#1B4332]/5'
                     }`}
                   >
-                    {link.label}
+                    {t('nav', NAV_KEYS[i])}
                   </Link>
                 );
               })}
             </nav>
 
-            {/* Right side: city + auth */}
+            {/* Right side: city + language + auth */}
             <div className="flex items-center gap-2">
 
               {/* City selector — visible on ALL screen sizes */}
@@ -241,6 +240,8 @@ export default function Header() {
                   </div>
                 )}
               </div>
+
+              <LanguageSwitcher />
 
               {/* Auth */}
               {user ? (

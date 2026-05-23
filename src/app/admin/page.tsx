@@ -1,419 +1,398 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/context';
+import { useMessages } from '@/lib/messages-context';
+import { useListings } from '@/lib/listings-context';
+import { useLanguage } from '@/lib/language-context';
 import { BUSINESSES, EVENTS, HOUSING, JOBS } from '@/lib/data';
 
-type TabType = 'overview' | 'businesses' | 'events' | 'housing' | 'jobs' | 'users';
+type AdminTab = 'overview' | 'businesses' | 'events' | 'housing' | 'jobs' | 'users' | 'messages' | 'listings';
 
-function StatCard({ label, value, icon, change, color }: { label: string; value: string | number; icon: string; change?: string; color: string }) {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between mb-4">
-        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl ${color}`}>{icon}</div>
-        {change && (
-          <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">{change}</span>
-        )}
+const MOCK_USERS = [
+  { id: '1', name: 'Administrator', email: 'admin@communityconnect.local', role: 'admin', createdAt: '2024-01-01' },
+  { id: '2', name: 'Demo User', email: 'user@communityconnect.local', role: 'user', createdAt: '2024-01-15' },
+];
+
+function StatCard({ label, value, emoji, href, badge }: { label: string; value: number | string; emoji: string; href?: string; badge?: number }) {
+  const inner = (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow cursor-pointer">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-gray-500 font-medium">{label}</p>
+          <p className="text-3xl font-black text-gray-900 mt-1">{value}</p>
+        </div>
+        <div className="relative">
+          <span className="text-3xl">{emoji}</span>
+          {badge !== undefined && badge > 0 && (
+            <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{badge}</span>
+          )}
+        </div>
       </div>
-      <div className="text-3xl font-black text-gray-900 mb-1">{value}</div>
-      <div className="text-sm text-gray-500">{label}</div>
+    </div>
+  );
+  return href ? <Link href={href}>{inner}</Link> : inner;
+}
+
+function DataTable({ columns, rows }: { columns: string[]; rows: (string | React.ReactNode)[][] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100">
+            {columns.map((c) => <th key={c} className="text-left py-3 px-4 text-xs font-bold text-gray-500 uppercase tracking-wide">{c}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+              {row.map((cell, j) => <td key={j} className="py-3 px-4 text-gray-700">{cell}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 export default function AdminPage() {
   const { user, isLoading, logout } = useApp();
+  const { supportMessages, userMessages, unreadSupportCount, markSupportMessageRead } = useMessages();
+  const { userListings, deleteListing } = useListings();
+  const { t } = useLanguage();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
-  const [businessSearch, setBusinessSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!isLoading) {
-      if (!user) {
-        router.push('/auth/login?redirect=/admin');
-      } else if (user.role !== 'admin') {
-        router.push('/');
-      }
+      if (!user) router.push('/auth/login?redirect=/admin');
+      else if (user.role !== 'admin') router.push('/');
     }
   }, [user, isLoading, router]);
 
   if (isLoading || !user || user.role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1B4332] to-[#52B788] animate-pulse" />
-          <p className="text-gray-400 text-sm">Vérification des droits...</p>
-        </div>
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1B4332] to-[#52B788] animate-pulse" />
       </div>
     );
   }
 
-  const tabs: { id: TabType; label: string; icon: string }[] = [
-    { id: 'overview', label: 'Overview', icon: '📊' },
-    { id: 'businesses', label: 'Businesses', icon: '🏪' },
-    { id: 'events', label: 'Events', icon: '🎉' },
-    { id: 'housing', label: 'Housing', icon: '🏠' },
-    { id: 'jobs', label: 'Jobs', icon: '💼' },
-    { id: 'users', label: 'Users', icon: '👥' },
+  const TABS: { key: AdminTab; label: string; emoji: string; badge?: number }[] = [
+    { key: 'overview', label: t('admin', 'overview'), emoji: '📊' },
+    { key: 'businesses', label: t('admin', 'businesses'), emoji: '🏪' },
+    { key: 'events', label: t('admin', 'events'), emoji: '🎉' },
+    { key: 'housing', label: t('admin', 'housing'), emoji: '🏠' },
+    { key: 'jobs', label: t('admin', 'jobs'), emoji: '💼' },
+    { key: 'listings', label: t('admin', 'userListings'), emoji: '📋', badge: userListings.length },
+    { key: 'users', label: t('admin', 'users'), emoji: '👥' },
+    { key: 'messages', label: t('admin', 'messages'), emoji: '💬', badge: unreadSupportCount },
   ];
 
-  const filteredBusinesses = BUSINESSES.filter(
-    (b) => !businessSearch || b.name.toLowerCase().includes(businessSearch.toLowerCase()) || b.city.toLowerCase().includes(businessSearch.toLowerCase())
-  );
+  const recentActivity = [
+    ...BUSINESSES.slice(0, 3).map((b) => ({ type: 'business', name: b.name, city: b.city, date: '2024-12-01' })),
+    ...EVENTS.slice(0, 2).map((e) => ({ type: 'event', name: e.title, city: e.city, date: e.date })),
+    ...userListings.slice(0, 3).map((l) => ({
+      type: l.type,
+      name: ('name' in l.data ? l.data.name as string : '') || ('title' in l.data ? l.data.title as string : '') || 'Untitled',
+      city: l.data.city,
+      date: l.createdAt,
+    })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 8);
+
+  const typeEmoji = (type: string) => type === 'business' ? '🏪' : type === 'event' ? '🎉' : type === 'housing' ? '🏠' : '💼';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+
+      {/* Top bar */}
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-white font-black text-lg shadow-md">
-              {user.name.charAt(0)}
-            </div>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-black text-gray-900 leading-none">Admin Dashboard</h1>
-              <p className="text-[#52B788] font-semibold text-sm">Welcome, {user.name} 👋</p>
-            </div>
-          </div>
-          <p className="text-gray-400 text-xs mt-1">Community Connect USA — {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          <h1 className="text-2xl font-black text-gray-900">{t('admin', 'welcomeBack')}, {user.name} 👋</h1>
+          <p className="text-gray-500 text-sm mt-0.5">{t('admin', 'title')}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/" className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:border-[#52B788] transition-colors">
-            ← Back to Site
+        <div className="flex items-center gap-3">
+          <Link href="/add-listing" className="px-4 py-2 text-sm font-semibold text-[#1B4332] border border-[#1B4332] rounded-xl hover:bg-[#1B4332] hover:text-white transition-colors flex items-center gap-1.5">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            {t('nav', 'addListing')}
           </Link>
           <button
             onClick={() => { logout(); router.push('/'); }}
-            className="px-4 py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-xl hover:bg-red-50 hover:border-red-300 transition-colors flex items-center gap-1.5"
+            className="px-4 py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors flex items-center gap-1.5"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
-            Déconnexion
+            {t('auth', 'logout')}
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1.5 rounded-2xl mb-8 overflow-x-auto">
-        {tabs.map((tab) => (
+      {/* Tab nav */}
+      <div className="flex gap-1 flex-wrap mb-8 bg-white rounded-2xl p-1.5 border border-gray-100 shadow-sm">
+        {TABS.map((tab) => (
           <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
-              activeTab === tab.id ? 'bg-white text-[#1B4332] shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all ${
+              activeTab === tab.key ? 'bg-[#1B4332] text-white' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
-            <span>{tab.icon}</span>
-            {tab.label}
+            <span>{tab.emoji}</span>
+            <span className="hidden sm:inline">{tab.label}</span>
+            {tab.badge !== undefined && tab.badge > 0 && (
+              <span className="w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">{tab.badge > 9 ? '9+' : tab.badge}</span>
+            )}
           </button>
         ))}
       </div>
 
       {/* Overview */}
       {activeTab === 'overview' && (
-        <div style={{ animation: 'fadeIn 0.3s ease' }}>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-            <StatCard label="Total Businesses" value={BUSINESSES.length} icon="🏪" change="+12%" color="bg-blue-50" />
-            <StatCard label="Total Events" value={EVENTS.length} icon="🎉" change="+8%" color="bg-purple-50" />
-            <StatCard label="Housing Listings" value={HOUSING.length} icon="🏠" change="+5%" color="bg-green-50" />
-            <StatCard label="Job Listings" value={JOBS.length} icon="💼" change="+15%" color="bg-yellow-50" />
-            <StatCard label="Total Users" value="1,247" icon="👥" change="+23%" color="bg-pink-50" />
-            <StatCard label="AI Searches Today" value="342" icon="🤖" change="+41%" color="bg-indigo-50" />
+        <div className="space-y-8">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <StatCard label={t('admin', 'totalUsers')} value={MOCK_USERS.length} emoji="👥" />
+            <StatCard label={t('admin', 'totalBusinesses')} value={BUSINESSES.length} emoji="🏪" />
+            <StatCard label={t('admin', 'totalEvents')} value={EVENTS.length} emoji="🎉" />
+            <StatCard label={t('admin', 'totalHousing')} value={HOUSING.length} emoji="🏠" />
+            <StatCard label={t('admin', 'totalJobs')} value={JOBS.length} emoji="💼" />
+            <StatCard label={t('admin', 'userListings')} value={userListings.length} emoji="📋" />
+            <StatCard label={t('admin', 'totalMessages')} value={supportMessages.length} emoji="💬" href="/admin/messages" badge={unreadSupportCount} />
+            <StatCard label="User Messages" value={userMessages.length} emoji="✉️" />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-              <h3 className="font-bold text-gray-900 mb-4">Recent Activity</h3>
-              <div className="space-y-3">
-                {[
-                  { action: 'New business listing submitted', time: '2 min ago', type: '🏪' },
-                  { action: 'User registered: ahmed@example.com', time: '5 min ago', type: '👤' },
-                  { action: 'AI search: "halal restaurants in NY"', time: '8 min ago', type: '🤖' },
-                  { action: 'New event posted: Eid Celebration', time: '12 min ago', type: '🎉' },
-                  { action: 'Housing listing: 2BR Chicago', time: '18 min ago', type: '🏠' },
-                  { action: 'Job application submitted', time: '25 min ago', type: '💼' },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
-                    <span className="text-xl">{item.type}</span>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-700">{item.action}</p>
-                    </div>
-                    <span className="text-xs text-gray-400 flex-shrink-0">{item.time}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-              <h3 className="font-bold text-gray-900 mb-4">Top Searches This Week</h3>
-              <div className="space-y-3">
-                {[
-                  { query: 'halal restaurants', count: 89, pct: 90 },
-                  { query: 'mosques near me', count: 67, pct: 68 },
-                  { query: 'apartments under $1500', count: 54, pct: 55 },
-                  { query: 'delivery jobs', count: 48, pct: 49 },
-                  { query: 'free events', count: 41, pct: 42 },
-                  { query: 'islamic school', count: 35, pct: 36 },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <span className="text-xs text-gray-400 w-4">{i + 1}</span>
-                    <div className="flex-1">
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-gray-700 font-medium">{item.query}</span>
-                        <span className="text-gray-400">{item.count}</span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-black text-gray-900 mb-4">{t('admin', 'recentActivity')}</h3>
+              {recentActivity.length === 0 ? (
+                <p className="text-gray-400 text-sm text-center py-8">No activity yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {recentActivity.map((item, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <span className="text-xl">{typeEmoji(item.type)}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
+                        <p className="text-xs text-gray-400">{item.city}</p>
                       </div>
-                      <div className="h-1.5 bg-gray-100 rounded-full">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-[#1B4332] to-[#52B788]"
-                          style={{ width: `${item.pct}%` }}
-                        />
-                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">
+                        {new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Businesses Tab */}
-      {activeTab === 'businesses' && (
-        <div style={{ animation: 'fadeIn 0.3s ease' }}>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-4">
-              <input
-                value={businessSearch}
-                onChange={(e) => setBusinessSearch(e.target.value)}
-                placeholder="Search businesses..."
-                className="px-4 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#52B788] flex-1 max-w-xs"
-              />
-              <button className="px-4 py-2 bg-[#1B4332] text-white text-sm font-semibold rounded-xl hover:bg-[#0f2d21] transition-colors">
-                + Add Business
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    {['Name', 'Category', 'City', 'Rating', 'Status', 'Actions'].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filteredBusinesses.map((b) => (
-                    <tr key={b.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <img src={b.image} alt={b.name} className="w-8 h-8 rounded-lg object-cover" />
-                          <div>
-                            <div className="text-sm font-semibold text-gray-900">{b.name}</div>
-                            <div className="text-xs text-gray-400">{b.address}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 capitalize">{b.category}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{b.city}, {b.state}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <span className="text-yellow-400">★</span>
-                          <span className="text-sm font-semibold">{b.rating}</span>
-                          <span className="text-xs text-gray-400">({b.reviewCount})</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${b.isOpen ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {b.isOpen ? 'Open' : 'Closed'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button className="text-xs text-blue-600 hover:underline">Edit</button>
-                          <button className="text-xs text-red-500 hover:underline">Delete</button>
-                        </div>
-                      </td>
-                    </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Events Tab */}
-      {activeTab === 'events' && (
-        <div style={{ animation: 'fadeIn 0.3s ease' }}>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex justify-between">
-              <h3 className="font-bold text-gray-900">All Events ({EVENTS.length})</h3>
-              <button className="px-4 py-2 bg-[#1B4332] text-white text-sm font-semibold rounded-xl hover:bg-[#0f2d21] transition-colors">
-                + Add Event
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    {['Title', 'Date', 'City', 'Attendees', 'Price', 'Actions'].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {EVENTS.map((e) => (
-                    <tr key={e.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{e.title}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{e.date}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{e.city}, {e.state}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{e.attendees.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${e.isFree ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                          {e.isFree ? 'Free' : `$${e.price}`}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button className="text-xs text-blue-600 hover:underline">Edit</button>
-                          <button className="text-xs text-red-500 hover:underline">Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Housing Tab */}
-      {activeTab === 'housing' && (
-        <div style={{ animation: 'fadeIn 0.3s ease' }}>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex justify-between">
-              <h3 className="font-bold text-gray-900">All Housing ({HOUSING.length})</h3>
-              <button className="px-4 py-2 bg-[#1B4332] text-white text-sm font-semibold rounded-xl hover:bg-[#0f2d21] transition-colors">
-                + Add Listing
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    {['Title', 'Type', 'City', 'Price', 'Beds/Bath', 'Actions'].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {HOUSING.map((h) => (
-                    <tr key={h.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs truncate">{h.title}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${h.listingType === 'rent' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                          For {h.listingType}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{h.city}, {h.state}</td>
-                      <td className="px-4 py-3 text-sm font-bold text-[#1B4332]">${h.price.toLocaleString()}{h.listingType === 'rent' ? '/mo' : ''}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{h.bedrooms}bd / {h.bathrooms}ba</td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button className="text-xs text-blue-600 hover:underline">Edit</button>
-                          <button className="text-xs text-red-500 hover:underline">Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Jobs Tab */}
-      {activeTab === 'jobs' && (
-        <div style={{ animation: 'fadeIn 0.3s ease' }}>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex justify-between">
-              <h3 className="font-bold text-gray-900">All Jobs ({JOBS.length})</h3>
-              <button className="px-4 py-2 bg-[#1B4332] text-white text-sm font-semibold rounded-xl hover:bg-[#0f2d21] transition-colors">
-                + Add Job
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    {['Title', 'Company', 'City', 'Salary', 'Type', 'Actions'].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {JOBS.map((j) => (
-                    <tr key={j.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{j.title}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{j.company}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{j.remote ? '🌐 Remote' : `${j.city}, ${j.state}`}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{j.salary}</td>
-                      <td className="px-4 py-3">
-                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 capitalize">
-                          {j.jobType}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button className="text-xs text-blue-600 hover:underline">Edit</button>
-                          <button className="text-xs text-red-500 hover:underline">Delete</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Users Tab */}
-      {activeTab === 'users' && (
-        <div style={{ animation: 'fadeIn 0.3s ease' }}>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h3 className="font-bold text-gray-900 mb-6">User Management</h3>
-            <div className="space-y-4">
-              {[
-                { name: 'Ahmed Hassan', email: 'ahmed@example.com', role: 'user', joined: '2026-04-15', searches: 42 },
-                { name: 'Fatima Al-Rashid', email: 'fatima@example.com', role: 'user', joined: '2026-04-20', searches: 28 },
-                { name: 'Omar Abdullah', email: 'omar@example.com', role: 'admin', joined: '2026-03-01', searches: 115 },
-                { name: 'Aisha Johnson', email: 'aisha@example.com', role: 'user', joined: '2026-05-02', searches: 17 },
-                { name: 'Yusuf Martinez', email: 'yusuf@example.com', role: 'user', joined: '2026-05-10', searches: 9 },
-              ].map((user, i) => (
-                <div key={i} className="flex items-center gap-4 p-4 bg-gray-50 rounded-2xl">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-white font-bold flex-shrink-0">
-                    {user.name.charAt(0)}
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-semibold text-gray-900 text-sm">{user.name}</div>
-                    <div className="text-xs text-gray-500">{user.email}</div>
-                  </div>
-                  <div className="text-center hidden sm:block">
-                    <div className="text-sm font-bold text-gray-700">{user.searches}</div>
-                    <div className="text-xs text-gray-400">searches</div>
-                  </div>
-                  <div className="text-xs text-gray-400 hidden md:block">Joined {user.joined}</div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${user.role === 'admin' ? 'bg-[#1B4332] text-white' : 'bg-gray-200 text-gray-600'}`}>
-                    {user.role}
-                  </span>
                 </div>
-              ))}
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-black text-gray-900">{t('admin', 'latestMessages')}</h3>
+                <Link href="/admin/messages" className="text-xs font-semibold text-[#1B4332] hover:underline">View all →</Link>
+              </div>
+              {supportMessages.length === 0 ? (
+                <p className="text-gray-400 text-sm text-center py-8">No messages yet</p>
+              ) : (
+                <div className="space-y-3">
+                  {supportMessages.slice(-5).reverse().map((msg) => (
+                    <div key={msg.id} className={`p-3 rounded-xl text-sm ${!msg.read ? 'bg-[#1B4332]/5 border border-[#52B788]/30' : 'bg-gray-50'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-gray-900">{msg.fromUserName}</span>
+                        {!msg.read && <span className="text-[10px] font-bold text-[#52B788]">NEW</span>}
+                      </div>
+                      <p className="text-gray-600 text-xs line-clamp-2">{msg.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'businesses' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+            <h3 className="font-black text-gray-900">{BUSINESSES.length} {t('admin', 'businesses')}</h3>
+            <Link href="/add-listing" className="px-3 py-1.5 bg-[#1B4332] text-white text-xs font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">+ Add</Link>
+          </div>
+          <DataTable
+            columns={['Name', 'Category', 'City', 'Rating', 'Status']}
+            rows={BUSINESSES.map((b) => [
+              <span key="n" className="font-semibold">{b.name}</span>,
+              b.category,
+              `${b.city}, ${b.state}`,
+              <span key="r">⭐ {b.rating}</span>,
+              <span key="s" className={`text-xs font-bold px-2 py-0.5 rounded-full ${b.isOpen ? 'bg-[#52B788]/15 text-[#1B4332]' : 'bg-red-50 text-red-600'}`}>{b.isOpen ? 'Open' : 'Closed'}</span>,
+            ])}
+          />
+        </div>
+      )}
+
+      {activeTab === 'events' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+            <h3 className="font-black text-gray-900">{EVENTS.length} {t('admin', 'events')}</h3>
+            <Link href="/add-listing" className="px-3 py-1.5 bg-[#1B4332] text-white text-xs font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">+ Add</Link>
+          </div>
+          <DataTable
+            columns={['Title', 'Organizer', 'Date', 'City', 'Price']}
+            rows={EVENTS.map((e) => [
+              <span key="t" className="font-semibold">{e.title}</span>,
+              e.organizer,
+              new Date(e.date).toLocaleDateString(),
+              `${e.city}, ${e.state}`,
+              e.isFree ? <span key="f" className="text-xs font-bold text-[#52B788]">Free</span> : `$${e.price}`,
+            ])}
+          />
+        </div>
+      )}
+
+      {activeTab === 'housing' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+            <h3 className="font-black text-gray-900">{HOUSING.length} {t('admin', 'housing')}</h3>
+            <Link href="/add-listing" className="px-3 py-1.5 bg-[#1B4332] text-white text-xs font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">+ Add</Link>
+          </div>
+          <DataTable
+            columns={['Title', 'Type', 'Price', 'City', 'Available']}
+            rows={HOUSING.map((h) => [
+              <span key="t" className="font-semibold">{h.title}</span>,
+              `${h.propertyType} (${h.listingType})`,
+              `$${h.price.toLocaleString()}${h.listingType === 'rent' ? '/mo' : ''}`,
+              `${h.city}, ${h.state}`,
+              <span key="a" className={`text-xs font-bold px-2 py-0.5 rounded-full ${h.available ? 'bg-[#52B788]/15 text-[#1B4332]' : 'bg-red-50 text-red-600'}`}>{h.available ? 'Available' : 'Taken'}</span>,
+            ])}
+          />
+        </div>
+      )}
+
+      {activeTab === 'jobs' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
+            <h3 className="font-black text-gray-900">{JOBS.length} {t('admin', 'jobs')}</h3>
+            <Link href="/add-listing" className="px-3 py-1.5 bg-[#1B4332] text-white text-xs font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">+ Add</Link>
+          </div>
+          <DataTable
+            columns={['Title', 'Company', 'Type', 'Salary', 'City']}
+            rows={JOBS.map((j) => [
+              <span key="t" className="font-semibold">{j.title}</span>,
+              j.company,
+              j.jobType,
+              j.salary,
+              `${j.city}, ${j.state}`,
+            ])}
+          />
+        </div>
+      )}
+
+      {activeTab === 'listings' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+          <div className="px-5 py-4 border-b border-gray-50">
+            <h3 className="font-black text-gray-900">{t('admin', 'userListings')} ({userListings.length})</h3>
+          </div>
+          {userListings.length === 0 ? (
+            <div className="text-center py-16">
+              <div className="text-5xl mb-4">📋</div>
+              <p className="text-gray-400">No user-submitted listings yet.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {userListings.map((listing) => {
+                const title = ('name' in listing.data ? listing.data.name as string : '') || ('title' in listing.data ? listing.data.title as string : '') || 'Untitled';
+                return (
+                  <div key={listing.id} className="p-5 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-xl flex-shrink-0">
+                      {typeEmoji(listing.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900 text-sm truncate">{title}</p>
+                      <p className="text-xs text-gray-500">{listing.publishedByName} · {listing.data.city}, {listing.data.state}</p>
+                      <p className="text-xs text-gray-400">{new Date(listing.createdAt).toLocaleDateString()}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${listing.status === 'active' ? 'bg-[#52B788]/15 text-[#1B4332]' : 'bg-yellow-100 text-yellow-700'}`}>
+                        {listing.status}
+                      </span>
+                      <button onClick={() => deleteListing(listing.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'users' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50">
+            <h3 className="font-black text-gray-900">{MOCK_USERS.length} {t('admin', 'users')}</h3>
+          </div>
+          <DataTable
+            columns={['Name', 'Email', 'Role', 'Joined']}
+            rows={MOCK_USERS.map((u) => [
+              <div key="u" className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-white text-xs font-bold">{u.name.charAt(0)}</div>
+                <span className="font-semibold">{u.name}</span>
+              </div>,
+              u.email,
+              <span key="r" className={`text-xs font-bold px-2.5 py-1 rounded-full ${u.role === 'admin' ? 'bg-[#1B4332] text-white' : 'bg-gray-100 text-gray-600'}`}>{u.role}</span>,
+              new Date(u.createdAt).toLocaleDateString(),
+            ])}
+          />
+        </div>
+      )}
+
+      {activeTab === 'messages' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-black text-gray-900">
+              {supportMessages.length} messages
+              {unreadSupportCount > 0 && <span className="text-sm font-semibold text-red-500 ml-2">({unreadSupportCount} unread)</span>}
+            </h3>
+            <Link href="/admin/messages" className="px-4 py-2 bg-[#1B4332] text-white text-sm font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">Full view →</Link>
+          </div>
+          {supportMessages.length === 0 ? (
+            <div className="text-center py-16 bg-white rounded-3xl border border-gray-100">
+              <div className="text-5xl mb-4">💬</div>
+              <p className="text-gray-400">No support messages yet.</p>
+            </div>
+          ) : (
+            supportMessages
+              .slice()
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+              .map((msg) => (
+                <div key={msg.id} className={`bg-white rounded-2xl border shadow-sm p-5 ${!msg.read ? 'border-[#52B788]/40 bg-[#1B4332]/[0.02]' : 'border-gray-100'}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                      {msg.fromUserName.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-gray-900 text-sm">{msg.fromUserName}</span>
+                          {!msg.read && <span className="bg-[#52B788] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">NEW</span>}
+                        </div>
+                        <span className="text-xs text-gray-400">{new Date(msg.timestamp).toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">{msg.fromUserEmail}</p>
+                      <p className="text-sm text-gray-700 mt-2">{msg.content}</p>
+                    </div>
+                  </div>
+                  {!msg.read && (
+                    <button onClick={() => markSupportMessageRead(msg.id)} className="mt-3 px-3 py-1.5 text-xs font-semibold text-[#1B4332] border border-[#1B4332]/30 rounded-xl hover:bg-[#1B4332]/5 transition-colors">
+                      {t('messages', 'markRead')}
+                    </button>
+                  )}
+                </div>
+              ))
+          )}
         </div>
       )}
     </div>

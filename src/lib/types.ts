@@ -160,6 +160,46 @@ export interface ToastNotification {
   duration?: number;
 }
 
+export interface UserMessage {
+  id: string;
+  fromUserId: string;
+  fromUserName: string;
+  fromUserEmail: string;
+  toUserId: string;
+  toUserName: string;
+  toUserEmail: string;
+  listingId?: string;
+  listingTitle?: string;
+  listingType?: string;
+  content: string;
+  timestamp: string;
+  read: boolean;
+}
+
+export interface SupportMessage {
+  id: string;
+  fromUserId?: string;
+  fromUserName: string;
+  fromUserEmail: string;
+  content: string;
+  timestamp: string;
+  page?: string;
+  read: boolean;
+}
+
+export interface UserListing {
+  id: string;
+  publishedBy: string;
+  publishedByName: string;
+  publishedByEmail: string;
+  type: ListingType;
+  data: Business | Event | Housing | Job;
+  createdAt: string;
+  status: 'active' | 'pending';
+}
+
+export type Language = 'en' | 'fr' | 'ar';
+
 export interface AppContextType {
   user: User | null;
   isLoading: boolean;
