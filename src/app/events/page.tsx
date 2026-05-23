@@ -3,18 +3,25 @@
 import React, { useState, useMemo } from 'react';
 import { EVENTS } from '@/lib/data';
 import EventCard from '@/components/cards/EventCard';
+import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
 
 const CATEGORIES = ['All', 'fundraiser', 'religious', 'food', 'education', 'community', 'sports', 'business'];
 
 export default function EventsPage() {
-  const { toggleSaved, isSaved } = useApp();
+  const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [showFree, setShowFree] = useState(false);
 
+  // Strict city filter first
+  const byCity = useMemo(
+    () => EVENTS.filter((e) => e.city.toLowerCase() === selectedCity.toLowerCase()),
+    [selectedCity]
+  );
+
   const filtered = useMemo(() => {
-    let results = EVENTS;
+    let results = byCity;
 
     if (search) {
       const q = search.toLowerCase();
@@ -22,7 +29,6 @@ export default function EventsPage() {
         (e) =>
           e.title.toLowerCase().includes(q) ||
           e.description.toLowerCase().includes(q) ||
-          e.city.toLowerCase().includes(q) ||
           e.organizer.toLowerCase().includes(q)
       );
     }
@@ -36,17 +42,22 @@ export default function EventsPage() {
     }
 
     return results.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [search, selectedCategory, showFree]);
+  }, [byCity, search, selectedCategory, showFree]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-3xl font-black text-gray-900 mb-1">Community Events</h1>
-        <p className="text-gray-500">Discover upcoming events in your community</p>
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <svg className="w-4 h-4 text-[#52B788]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+          </svg>
+          Events in <span className="font-semibold text-[#1B4332]">{selectedCity}, {selectedState}</span>
+        </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-8 space-y-4">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6 space-y-4">
         <div className="relative">
           <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -54,7 +65,7 @@ export default function EventsPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search events, organizers, locations..."
+            placeholder={`Search events in ${selectedCity}...`}
             className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#52B788] text-gray-800 bg-gray-50"
           />
         </div>
@@ -86,14 +97,27 @@ export default function EventsPage() {
         </div>
       </div>
 
-      <p className="text-sm text-gray-500 mb-4">{filtered.length} events found</p>
+      <p className="text-sm text-gray-500 mb-4">
+        {filtered.length} {filtered.length === 1 ? 'event' : 'events'} in {selectedCity}
+      </p>
 
-      {filtered.length === 0 ? (
-        <div className="text-center py-20">
-          <div className="text-6xl mb-4">📅</div>
-          <h3 className="text-xl font-bold text-gray-700 mb-2">No events found</h3>
-          <p className="text-gray-400">Try adjusting your search or filters</p>
-        </div>
+      {byCity.length === 0 ? (
+        <EmptyState
+          icon="📅"
+          title="No events in this city"
+          description={`There are no events listed in ${selectedCity} yet. Try selecting a different city from the location selector above.`}
+          city={`${selectedCity}, ${selectedState}`}
+          actionLabel="Change Location"
+          onAction={() => {}}
+        />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon="🔍"
+          title="No matching events"
+          description={`No events in ${selectedCity} match your current filters.`}
+          actionLabel="Clear Filters"
+          onAction={() => { setSearch(''); setSelectedCategory('All'); setShowFree(false); }}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {filtered.map((event) => (

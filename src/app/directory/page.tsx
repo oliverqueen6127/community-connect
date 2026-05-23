@@ -3,19 +3,27 @@
 import React, { useState, useMemo } from 'react';
 import { BUSINESSES } from '@/lib/data';
 import BusinessCard from '@/components/cards/BusinessCard';
+import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
 
 const CATEGORIES = ['All', 'halal', 'restaurant', 'mosque', 'grocery', 'school', 'healthcare', 'retail', 'services'];
 
 export default function DirectoryPage() {
-  const { toggleSaved, isSaved } = useApp();
+  const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState<'rating' | 'name' | 'reviews'>('rating');
   const [showOpen, setShowOpen] = useState(false);
 
+  // Step 1: strict city filter
+  const byCity = useMemo(
+    () => BUSINESSES.filter((b) => b.city.toLowerCase() === selectedCity.toLowerCase()),
+    [selectedCity]
+  );
+
+  // Step 2: apply user filters within that city
   const filtered = useMemo(() => {
-    let results = BUSINESSES;
+    let results = byCity;
 
     if (search) {
       const q = search.toLowerCase();
@@ -23,7 +31,6 @@ export default function DirectoryPage() {
         (b) =>
           b.name.toLowerCase().includes(q) ||
           b.description.toLowerCase().includes(q) ||
-          b.city.toLowerCase().includes(q) ||
           b.tags.some((t) => t.toLowerCase().includes(q))
       );
     }
@@ -43,17 +50,22 @@ export default function DirectoryPage() {
       if (sortBy === 'reviews') return b.reviewCount - a.reviewCount;
       return a.name.localeCompare(b.name);
     });
-  }, [search, selectedCategory, sortBy, showOpen]);
+  }, [byCity, search, selectedCategory, sortBy, showOpen]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-3xl font-black text-gray-900 mb-1">Business Directory</h1>
-        <p className="text-gray-500">Discover community businesses near you</p>
+        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+          <svg className="w-4 h-4 text-[#52B788]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+          </svg>
+          Showing businesses in <span className="font-semibold text-[#1B4332]">{selectedCity}, {selectedState}</span>
+        </div>
       </div>
 
-      {/* Search + Filters */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-8 space-y-4">
+      {/* Filters */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6 space-y-4">
         <div className="relative">
           <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -61,7 +73,7 @@ export default function DirectoryPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search businesses, categories, locations..."
+            placeholder={`Search in ${selectedCity}...`}
             className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#52B788] text-gray-800 bg-gray-50"
           />
         </div>
@@ -73,9 +85,7 @@ export default function DirectoryPage() {
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
                 className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all capitalize ${
-                  selectedCategory === cat
-                    ? 'bg-[#1B4332] text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  selectedCategory === cat ? 'bg-[#1B4332] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
                 {cat}
@@ -107,17 +117,27 @@ export default function DirectoryPage() {
         </div>
       </div>
 
-      {/* Results count */}
       <p className="text-sm text-gray-500 mb-4">
-        {filtered.length} {filtered.length === 1 ? 'business' : 'businesses'} found
+        {filtered.length} {filtered.length === 1 ? 'business' : 'businesses'} in {selectedCity}
       </p>
 
-      {filtered.length === 0 ? (
-        <div className="text-center py-20">
-          <div className="text-6xl mb-4">🔍</div>
-          <h3 className="text-xl font-bold text-gray-700 mb-2">No businesses found</h3>
-          <p className="text-gray-400">Try adjusting your search or filters</p>
-        </div>
+      {byCity.length === 0 ? (
+        <EmptyState
+          icon="🏪"
+          title="No businesses in this city"
+          description={`There are no businesses listed in ${selectedCity} yet. Try selecting a different city from the location selector above.`}
+          city={`${selectedCity}, ${selectedState}`}
+          actionLabel="Change Location"
+          onAction={() => document.querySelector<HTMLButtonElement>('[data-city-selector]')?.click()}
+        />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon="🔍"
+          title="No matches found"
+          description={`No businesses in ${selectedCity} match your current filters. Try adjusting your search or category.`}
+          actionLabel="Clear Filters"
+          onAction={() => { setSearch(''); setSelectedCategory('All'); setShowOpen(false); }}
+        />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {filtered.map((business) => (

@@ -4,13 +4,28 @@ import { SearchFilters } from '@/lib/types';
 
 export const runtime = 'nodejs';
 
+interface Location {
+  city: string;
+  state: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { message, history = [] } = await request.json();
+    const { message, history = [], location } = await request.json() as {
+      message: string;
+      history: { role: string; content: string }[];
+      location?: Location;
+    };
 
     if (!message || typeof message !== 'string') {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
+
+    const activeCity = location?.city || '';
+    const activeState = location?.state || '';
+    const locationLine = activeCity
+      ? `\n\n⚠️ ACTIVE USER LOCATION: ${activeCity}, ${activeState}\nYou MUST only show results from ${activeCity}. NEVER show results from other cities unless the user explicitly asks. If no results exist in ${activeCity}, say so clearly.`
+      : '';
 
     const directoryContext = buildContextString();
 
@@ -19,46 +34,35 @@ export async function POST(request: NextRequest) {
 Your job is to understand user questions and return structured search responses about local businesses, events, housing, and jobs.
 
 You have access to the following directory data:
-${directoryContext}
+${directoryContext}${locationLine}
 
 IMPORTANT INSTRUCTIONS:
 1. Always analyze the user's request to determine what they are looking for
-2. Extract location information (city, state, zip)
-3. Extract category/type information
-4. Extract any price or filter requirements
-5. Return a helpful, warm, conversational response
-6. Always include a JSON block at the end with the extracted filters
+2. If the user has a selected location, ALWAYS filter to that location — never mix cities
+3. Return a helpful, warm, conversational response mentioning the city
+4. Always include a JSON block at the end with the extracted filters
 
-For the JSON block, use this EXACT format (do not change field names):
+For the JSON block, use this EXACT format:
 <search_filters>
 {
   "type": "business" | "event" | "housing" | "job" | null,
   "city": "city name" | null,
-  "state": "state code like NY, CA, TX" | null,
+  "state": "state code" | null,
   "category": "category keyword" | null,
   "priceMin": number | null,
   "priceMax": number | null,
   "rating": number | null,
-  "keywords": ["keyword1", "keyword2"] | null,
+  "keywords": ["keyword1"] | null,
   "listingType": "rent" | "sale" | null,
   "jobType": "full-time" | "part-time" | "contract" | "freelance" | null,
   "remote": true | false | null,
   "bedrooms": number | null,
   "isFree": true | false | null
 }
-</search_filters>
-
-Examples:
-- "halal restaurants in Philadelphia" → type: "business", city: "Philadelphia", category: "halal"
-- "apartments under 1200 in Chicago" → type: "housing", city: "Chicago", priceMax: 1200, listingType: "rent"
-- "free events this weekend" → type: "event", isFree: true
-- "delivery jobs in New York" → type: "job", city: "New York", keywords: ["delivery"]
-- "mosque near me" → type: "business", category: "mosque"
-
-Always be warm, helpful, and community-focused in your responses. Mention the number of results you found.`;
+</search_filters>`;
 
     const messages = [
-      ...history.slice(-6).map((h: { role: string; content: string }) => ({
+      ...history.slice(-6).map((h) => ({
         role: h.role as 'user' | 'assistant',
         content: h.content,
       })),
@@ -68,13 +72,13 @@ Always be warm, helpful, and community-focused in your responses. Mention the nu
     const apiKey = process.env.OPENROUTER_API_KEY;
 
     if (!apiKey) {
-      const mockResponse = generateMockResponse(message);
-      const filters = extractFiltersFromMessage(message);
+      const filters = extractFiltersFromMessage(message, location);
       const results = searchDirectory(filters);
+      const mockMessage = generateMockResponse(message, activeCity);
       return NextResponse.json({
-        message: mockResponse,
+        message: mockMessage,
         filters,
-        results: results.slice(0, 6),
+        results: results.slice(0, 8),
         totalFound: results.length,
       });
     }
@@ -112,10 +116,16 @@ Always be warm, helpful, and community-focused in your responses. Mention the nu
           Object.entries(parsed).filter(([, v]) => v !== null && v !== undefined)
         ) as SearchFilters;
       } catch {
-        filters = extractFiltersFromMessage(message);
+        filters = extractFiltersFromMessage(message, location);
       }
     } else {
-      filters = extractFiltersFromMessage(message);
+      filters = extractFiltersFromMessage(message, location);
+    }
+
+    // Always enforce the active location
+    if (activeCity && !filters.city) {
+      filters.city = activeCity;
+      filters.state = activeState;
     }
 
     const cleanMessage = aiContent
@@ -132,28 +142,20 @@ Always be warm, helpful, and community-focused in your responses. Mention the nu
     });
   } catch (error) {
     console.error('Chat API error:', error);
-    const filters = extractFiltersFromMessage('');
     return NextResponse.json({
       message: "I'm here to help you discover your community! Try asking about halal restaurants, local mosques, apartments, jobs, or upcoming events.",
-      filters,
+      filters: {},
       results: [],
       totalFound: 0,
     });
   }
 }
 
-function extractFiltersFromMessage(message: string): SearchFilters {
+function extractFiltersFromMessage(message: string, location?: Location): SearchFilters {
   const lower = message.toLowerCase();
   const filters: SearchFilters = {};
 
-  const cities = ['new york', 'chicago', 'philadelphia', 'houston', 'dallas', 'los angeles', 'atlanta', 'seattle', 'boston', 'miami'];
-  for (const city of cities) {
-    if (lower.includes(city)) {
-      filters.city = city.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-      break;
-    }
-  }
-
+  // Type detection
   if (lower.includes('restaurant') || lower.includes('food') || lower.includes('eat') || lower.includes('dining')) {
     filters.type = 'business';
     filters.category = lower.includes('halal') ? 'halal' : 'restaurant';
@@ -192,26 +194,47 @@ function extractFiltersFromMessage(message: string): SearchFilters {
     filters.rating = parseFloat(ratingMatch[1]);
   }
 
+  // Check if user explicitly mentioned a different city
+  const cities = ['new york', 'chicago', 'philadelphia', 'houston', 'dallas', 'los angeles', 'atlanta', 'seattle', 'boston', 'miami'];
+  let userSpecifiedCity = false;
+  for (const city of cities) {
+    if (lower.includes(city)) {
+      filters.city = city.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      userSpecifiedCity = true;
+      break;
+    }
+  }
+
+  // If user didn't specify a city, use the active location
+  if (!userSpecifiedCity && location?.city) {
+    filters.city = location.city;
+    if (location.state) filters.state = location.state;
+  }
+
   return filters;
 }
 
-function generateMockResponse(message: string): string {
+function generateMockResponse(message: string, city: string): string {
   const lower = message.toLowerCase();
+  const loc = city ? ` in ${city}` : '';
 
   if (lower.includes('halal') && (lower.includes('restaurant') || lower.includes('food'))) {
-    return "I found some amazing halal restaurants for you! Here are the top-rated options in our directory. Each one is certified halal with great community reviews.";
+    return `I found some amazing halal restaurants${loc}! Here are the top-rated options in our directory. Each one is certified halal with great community reviews.`;
   }
   if (lower.includes('mosque') || lower.includes('masjid')) {
-    return "I found Islamic centers and mosques in our directory. These are community-verified locations offering daily prayers and community services.";
+    return `I found Islamic centers and mosques${loc}. These are community-verified locations offering daily prayers and community services.`;
   }
   if (lower.includes('apartment') || lower.includes('rent')) {
-    return "Here are available housing listings matching your criteria! I've filtered for your location and budget requirements.";
+    return `Here are available housing listings${loc}! I've filtered for your location and budget requirements.`;
   }
   if (lower.includes('job') || lower.includes('work')) {
-    return "I found job opportunities in our directory! Here are positions that match what you're looking for.";
+    return `I found job opportunities${loc}! Here are positions that match what you're looking for.`;
   }
   if (lower.includes('event')) {
-    return "Here are upcoming community events! From cultural gatherings to educational workshops, there's something for everyone.";
+    return `Here are upcoming community events${loc}! From cultural gatherings to educational workshops, there's something for everyone.`;
   }
-  return "I found several listings that match your search. Here's what's available in our community directory!";
+  if (lower.includes('grocery') || lower.includes('halal market')) {
+    return `I found halal grocery stores and markets${loc}! Great options for fresh halal products and specialty items.`;
+  }
+  return `I found several listings${loc} that match your search. Here's what's available in our community directory!`;
 }

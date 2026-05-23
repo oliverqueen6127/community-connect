@@ -1,9 +1,13 @@
-import React from 'react';
+'use client';
+
+import React, { useMemo } from 'react';
 import Link from 'next/link';
 import HomeAIChat from '@/components/chat/HomeAIChat';
 import BusinessCard from '@/components/cards/BusinessCard';
 import EventCard from '@/components/cards/EventCard';
+import EmptyState from '@/components/ui/EmptyState';
 import { BUSINESSES, EVENTS, US_CITIES } from '@/lib/data';
+import { useApp } from '@/lib/context';
 
 function StatCard({ value, label, icon }: { value: string; label: string; icon: string }) {
   return (
@@ -15,35 +19,48 @@ function StatCard({ value, label, icon }: { value: string; label: string; icon: 
 }
 
 export default function HomePage() {
-  const featuredBusinesses = BUSINESSES.slice(0, 6);
-  const upcomingEvents = EVENTS.slice(0, 4);
+  const { selectedCity, selectedState, setSelectedCity, setSelectedState } = useApp();
+
+  const featuredBusinesses = useMemo(
+    () => BUSINESSES.filter((b) => b.city.toLowerCase() === selectedCity.toLowerCase()).slice(0, 6),
+    [selectedCity]
+  );
+
+  const upcomingEvents = useMemo(
+    () => EVENTS.filter((e) => e.city.toLowerCase() === selectedCity.toLowerCase()).slice(0, 4),
+    [selectedCity]
+  );
 
   return (
     <div className="min-h-screen">
-      {/* Hero Section */}
+      {/* Hero */}
       <section className="hero-gradient py-16 md:py-24 px-4 relative overflow-hidden">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full bg-white/5 blur-3xl" />
           <div className="absolute -bottom-20 -left-20 w-80 h-80 rounded-full bg-white/5 blur-3xl" />
         </div>
-
         <div className="max-w-4xl mx-auto text-center relative">
           <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full px-4 py-2 text-white/90 text-sm mb-6" style={{ animation: 'fadeIn 0.6s ease' }}>
             <span className="w-2 h-2 bg-[#52B788] rounded-full animate-pulse" />
             AI-Powered Community Discovery
           </div>
-
           <h1 className="text-4xl md:text-6xl font-black text-white leading-tight mb-4" style={{ animation: 'slideUp 0.6s ease' }}>
             Find Your Community
             <span className="block text-[#52B788]">With AI Assistance</span>
           </h1>
-
-          <p className="text-white/80 text-lg md:text-xl max-w-2xl mx-auto mb-10" style={{ animation: 'slideUp 0.7s ease' }}>
-            Discover halal restaurants, mosques, housing, jobs, and events near you.
-            Just ask — our AI does the rest.
+          <p className="text-white/80 text-lg md:text-xl max-w-2xl mx-auto mb-4" style={{ animation: 'slideUp 0.7s ease' }}>
+            Discover halal restaurants, mosques, housing, jobs, and events near you. Just ask — our AI does the rest.
           </p>
 
-          <div className="flex flex-wrap justify-center gap-3 mb-8" style={{ animation: 'slideUp 0.8s ease' }}>
+          {/* Active location pill */}
+          <div className="inline-flex items-center gap-2 bg-white/15 border border-white/25 rounded-full px-4 py-2 text-white/95 text-sm mb-8 font-medium" style={{ animation: 'slideUp 0.75s ease' }}>
+            <svg className="w-4 h-4 text-[#52B788]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            </svg>
+            Showing results for <span className="font-black text-white">{selectedCity}, {selectedState}</span>
+          </div>
+
+          <div className="flex flex-wrap justify-center gap-3 mb-10" style={{ animation: 'slideUp 0.8s ease' }}>
             {[
               { href: '/directory', label: '🍽️ Restaurants' },
               { href: '/directory', label: '🕌 Mosques' },
@@ -70,7 +87,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* AI Chat Section */}
+      {/* AI Chat */}
       <section className="bg-white border-b border-gray-100">
         <HomeAIChat />
       </section>
@@ -80,23 +97,35 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h2 className="text-2xl md:text-3xl font-black text-gray-900">Featured Businesses</h2>
-            <p className="text-gray-500 text-sm mt-1">Top-rated community businesses</p>
+            <p className="text-gray-500 text-sm mt-1">
+              Top-rated businesses in <span className="font-semibold text-[#1B4332]">{selectedCity}</span>
+            </p>
           </div>
-          <Link
-            href="/directory"
-            className="flex items-center gap-1 text-sm font-semibold text-[#1B4332] hover:text-[#52B788] transition-colors"
-          >
+          <Link href="/directory" className="flex items-center gap-1 text-sm font-semibold text-[#1B4332] hover:text-[#52B788] transition-colors">
             View All
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </Link>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {featuredBusinesses.map((business) => (
-            <BusinessCard key={business.id} business={business} />
-          ))}
-        </div>
+
+        {featuredBusinesses.length === 0 ? (
+          <EmptyState
+            icon="🏪"
+            title="No businesses found"
+            description={`There are no businesses listed in ${selectedCity} yet. Try a different city or check back soon.`}
+            city={selectedCity}
+            actionLabel="Change Location"
+            onAction={() => {
+              const next = US_CITIES.find((c) => c.city !== selectedCity);
+              if (next) { setSelectedCity(next.city); setSelectedState(next.state); }
+            }}
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {featuredBusinesses.map((b) => <BusinessCard key={b.id} business={b} />)}
+          </div>
+        )}
       </section>
 
       {/* Upcoming Events */}
@@ -105,23 +134,32 @@ export default function HomePage() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h2 className="text-2xl md:text-3xl font-black text-gray-900">Upcoming Events</h2>
-              <p className="text-gray-500 text-sm mt-1">Community gatherings near you</p>
+              <p className="text-gray-500 text-sm mt-1">
+                Community events in <span className="font-semibold text-[#1B4332]">{selectedCity}</span>
+              </p>
             </div>
-            <Link
-              href="/events"
-              className="flex items-center gap-1 text-sm font-semibold text-[#1B4332] hover:text-[#52B788] transition-colors"
-            >
+            <Link href="/events" className="flex items-center gap-1 text-sm font-semibold text-[#1B4332] hover:text-[#52B788] transition-colors">
               View All
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </Link>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {upcomingEvents.map((event) => (
-              <EventCard key={event.id} event={event} />
-            ))}
-          </div>
+
+          {upcomingEvents.length === 0 ? (
+            <EmptyState
+              icon="📅"
+              title="No events found"
+              description={`No upcoming events in ${selectedCity}. Explore events in other cities.`}
+              city={selectedCity}
+              actionLabel="Browse All Events"
+              onAction={() => {}}
+            />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {upcomingEvents.map((e) => <EventCard key={e.id} event={e} />)}
+            </div>
+          )}
         </div>
       </section>
 
@@ -133,43 +171,37 @@ export default function HomePage() {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
           {US_CITIES.slice(0, 10).map((c) => (
-            <Link
+            <button
               key={`${c.city}-${c.state}`}
-              href={`/directory?city=${encodeURIComponent(c.city)}&state=${c.state}`}
-              className="group flex flex-col items-center justify-center py-5 px-3 bg-white rounded-2xl border border-gray-100 hover:border-[#52B788] hover:shadow-lg transition-all duration-200 text-center"
+              onClick={() => { setSelectedCity(c.city); setSelectedState(c.state); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className={`group flex flex-col items-center justify-center py-5 px-3 rounded-2xl border transition-all duration-200 text-center ${
+                selectedCity === c.city
+                  ? 'bg-[#1B4332] border-[#1B4332] shadow-lg'
+                  : 'bg-white border-gray-100 hover:border-[#52B788] hover:shadow-lg'
+              }`}
             >
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1B4332]/10 to-[#52B788]/20 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-                <svg className="w-5 h-5 text-[#1B4332]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition-transform ${selectedCity === c.city ? 'bg-white/20' : 'bg-gradient-to-br from-[#1B4332]/10 to-[#52B788]/20'}`}>
+                <svg className={`w-5 h-5 ${selectedCity === c.city ? 'text-white' : 'text-[#1B4332]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 </svg>
               </div>
-              <span className="font-bold text-gray-800 text-sm">{c.city}</span>
-              <span className="text-xs text-gray-400">{c.state}</span>
-            </Link>
+              <span className={`font-bold text-sm ${selectedCity === c.city ? 'text-white' : 'text-gray-800'}`}>{c.city}</span>
+              <span className={`text-xs ${selectedCity === c.city ? 'text-white/70' : 'text-gray-400'}`}>{c.state}</span>
+            </button>
           ))}
         </div>
       </section>
 
-      {/* CTA Banner */}
+      {/* CTA */}
       <section className="hero-gradient py-16 px-4">
         <div className="max-w-3xl mx-auto text-center">
-          <h2 className="text-3xl md:text-4xl font-black text-white mb-4">
-            List Your Business for Free
-          </h2>
-          <p className="text-white/80 text-lg mb-8">
-            Join thousands of community businesses and reach more customers today.
-          </p>
+          <h2 className="text-3xl md:text-4xl font-black text-white mb-4">List Your Business for Free</h2>
+          <p className="text-white/80 text-lg mb-8">Join thousands of community businesses and reach more customers today.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link
-              href="/auth/register"
-              className="px-8 py-4 bg-white text-[#1B4332] font-bold rounded-2xl hover:bg-[#52B788] hover:text-white transition-all duration-300 shadow-xl text-lg"
-            >
+            <Link href="/auth/register" className="px-8 py-4 bg-white text-[#1B4332] font-bold rounded-2xl hover:bg-[#52B788] hover:text-white transition-all duration-300 shadow-xl text-lg">
               Get Started Free
             </Link>
-            <Link
-              href="/directory"
-              className="px-8 py-4 bg-white/10 border border-white/30 text-white font-bold rounded-2xl hover:bg-white/20 transition-all duration-300 text-lg"
-            >
+            <Link href="/directory" className="px-8 py-4 bg-white/10 border border-white/30 text-white font-bold rounded-2xl hover:bg-white/20 transition-all duration-300 text-lg">
               Browse Directory
             </Link>
           </div>

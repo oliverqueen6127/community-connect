@@ -2,17 +2,18 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, AISearchResponse } from '@/lib/types';
+import { useApp } from '@/lib/context';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import SuggestionChips from './SuggestionChips';
 import TypingIndicator from './TypingIndicator';
 
 export default function HomeAIChat() {
+  const { selectedCity, selectedState } = useApp();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -32,7 +33,6 @@ export default function HomeAIChat() {
 
   const sendMessage = async (content: string) => {
     if (isLoading) return;
-
     if (!hasStarted) setHasStarted(true);
 
     addMessage({ role: 'user', content });
@@ -45,6 +45,7 @@ export default function HomeAIChat() {
         body: JSON.stringify({
           message: content,
           history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+          location: { city: selectedCity, state: selectedState },
         }),
       });
 
@@ -52,13 +53,13 @@ export default function HomeAIChat() {
 
       addMessage({
         role: 'assistant',
-        content: data.message || 'I found some results for you!',
+        content: data.message || `Here's what I found in ${selectedCity}!`,
         results: data.results || [],
       });
     } catch {
       addMessage({
         role: 'assistant',
-        content: 'Sorry, I had trouble processing your request. Please try again!',
+        content: `Sorry, I had trouble processing your request. Please try again!`,
         results: [],
       });
     } finally {
@@ -69,7 +70,7 @@ export default function HomeAIChat() {
   const handleRegenerate = async () => {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
     if (!lastUserMessage) return;
-    setMessages((prev) => prev.filter((m) => m.id !== prev[prev.length - 1].id));
+    setMessages((prev) => prev.slice(0, -1));
     await sendMessage(lastUserMessage.content);
   };
 
@@ -88,12 +89,19 @@ export default function HomeAIChat() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
               </svg>
             </div>
-            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-3">
+            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-2">
               Community Connect <span className="text-[#52B788]">AI</span>
             </h2>
-            <p className="text-gray-500 text-lg max-w-xl mx-auto">
-              Discover businesses, jobs, housing, and events with the power of AI. Just ask anything.
+            <p className="text-gray-500 text-base md:text-lg max-w-xl mx-auto mb-2">
+              Discover businesses, jobs, housing, and events with AI.
             </p>
+            {/* Active location indicator */}
+            <div className="inline-flex items-center gap-1.5 bg-[#1B4332]/8 border border-[#1B4332]/15 rounded-full px-3 py-1.5 text-sm text-[#1B4332] font-medium">
+              <svg className="w-3.5 h-3.5 text-[#52B788]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              </svg>
+              Searching in <span className="font-black ml-1">{selectedCity}, {selectedState}</span>
+            </div>
           </div>
 
           <div className="mb-6">
@@ -108,6 +116,7 @@ export default function HomeAIChat() {
 
   return (
     <section className="flex flex-col h-[calc(100vh-140px)] md:h-[calc(100vh-80px)]">
+      {/* Chat header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white/80 backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center">
@@ -117,6 +126,13 @@ export default function HomeAIChat() {
           </div>
           <span className="font-bold text-gray-800 text-sm">Community Connect AI</span>
           <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+          {/* Location badge */}
+          <span className="hidden sm:inline-flex items-center gap-1 bg-[#1B4332]/8 text-[#1B4332] text-xs font-semibold rounded-full px-2 py-0.5">
+            <svg className="w-3 h-3 text-[#52B788]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            </svg>
+            {selectedCity}
+          </span>
         </div>
         <button
           onClick={clearChat}
@@ -129,7 +145,8 @@ export default function HomeAIChat() {
         </button>
       </div>
 
-      <div ref={chatContainerRef} className="flex-1 overflow-y-auto py-4 space-y-2">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto py-4 space-y-2">
         {messages.map((msg, i) => (
           <MessageBubble
             key={msg.id}
@@ -141,6 +158,7 @@ export default function HomeAIChat() {
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
+      {/* Input */}
       <div className="p-4 border-t border-gray-100 bg-white/80 backdrop-blur-sm">
         <ChatInput onSend={sendMessage} isLoading={isLoading} compact />
       </div>

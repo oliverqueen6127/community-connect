@@ -175,4 +175,6 @@ export interface AppContextType {
   clearChat: () => void;
   toggleSaved: (type: 'businesses' | 'events' | 'housing' | 'jobs', id: string) => void;
   isSaved: (type: 'businesses' | 'events' | 'housing' | 'jobs', id: string) => boolean;
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => void;
 }
