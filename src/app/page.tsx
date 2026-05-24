@@ -9,6 +9,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import { BUSINESSES, EVENTS, US_CITIES } from '@/lib/data';
 import { useApp } from '@/lib/context';
 import { useLanguage } from '@/lib/language-context';
+import LocationPicker from '@/components/ui/LocationPicker';
 
 function StatCard({ value, label, icon }: { value: string; label: string; icon: string }) {
   return (
@@ -20,7 +21,7 @@ function StatCard({ value, label, icon }: { value: string; label: string; icon: 
 }
 
 export default function HomePage() {
-  const { selectedCity, selectedState, setSelectedCity, setSelectedState } = useApp();
+  const { selectedCity, setSelectedCity, setSelectedState } = useApp();
   const { t } = useLanguage();
 
   const featuredBusinesses = useMemo(
@@ -68,13 +69,7 @@ export default function HomePage() {
             {t('home', 'heroSubtitle')}
           </p>
 
-          <div className="inline-flex items-center gap-2 glass border border-white/10 rounded-full px-4 py-2 text-white/55 text-sm font-medium">
-            <svg className="w-3.5 h-3.5 text-[#00E38C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            </svg>
-            {t('home', 'searchingIn')}
-            <span className="font-black text-white">{selectedCity}, {selectedState}</span>
-          </div>
+          <LocationPicker />
         </div>
       </section>
 
