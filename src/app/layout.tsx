@@ -6,7 +6,6 @@ import { MessagesProvider } from '@/lib/messages-context';
 import { ListingsProvider } from '@/lib/listings-context';
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
-import BottomNav from '@/components/layout/BottomNav';
 import ToastContainer from '@/components/ui/Toast';
 import BackButton from '@/components/ui/BackButton';
 import SupportChat from '@/components/ui/SupportChat';
@@ -51,12 +50,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <BackButton />
 
                 {/* Main content — offset for sidebar on desktop */}
-                <main className="relative z-10 pb-20 lg:pb-0 lg:ml-64 min-h-screen">
+                <main className="relative z-10 pb-4 lg:pb-0 lg:ml-64 min-h-screen overflow-x-hidden">
                   {children}
                 </main>
-
-                {/* Mobile bottom nav */}
-                <BottomNav />
 
                 <ToastContainer />
                 <SupportChat />

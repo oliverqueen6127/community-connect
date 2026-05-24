@@ -181,6 +181,7 @@ export interface SupportMessage {
   fromUserId?: string;
   fromUserName: string;
   fromUserEmail: string;
+  subject?: string;
   content: string;
   timestamp: string;
   page?: string;

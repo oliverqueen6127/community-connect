@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import OpenAI from 'openai';
 import { buildContextString, searchDirectory } from '@/lib/directory-search';
 import { SearchFilters } from '@/lib/types';
 
@@ -9,203 +10,315 @@ interface Location {
   state: string;
 }
 
+const encoder = new TextEncoder();
+
+function sseChunk(payload: Record<string, unknown>): Uint8Array {
+  return encoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function makeStream(
+  fn: (controller: ReadableStreamDefaultController) => Promise<void>
+): Response {
+  const stream = new ReadableStream({ start: fn });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { message, history = [], location } = await request.json() as {
+    const body = await request.json() as {
       message: string;
       history: { role: string; content: string }[];
       location?: Location;
     };
 
+    const { message, history = [], location } = body;
+
     if (!message || typeof message !== 'string') {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+      return new Response(JSON.stringify({ error: 'Message is required' }), { status: 400 });
     }
+
+    // Truncate to 2000 chars for safety
+    const safeMessage = message.slice(0, 2000);
 
     const activeCity = location?.city || '';
     const activeState = location?.state || '';
-    const locationLine = activeCity
-      ? `\n\n⚠️ ACTIVE USER LOCATION: ${activeCity}, ${activeState}\nYou MUST only show results from ${activeCity}. NEVER show results from other cities unless the user explicitly asks. If no results exist in ${activeCity}, say so clearly.`
+    const locationContext = activeCity
+      ? `\n\nACTIVE USER LOCATION: ${activeCity}, ${activeState}\nOnly show results from ${activeCity}. If nothing found in ${activeCity}, say so and suggest checking a nearby city.`
       : '';
 
     const directoryContext = buildContextString();
 
-    const systemPrompt = `You are the Community Connect USA AI assistant — an intelligent search helper for a community platform serving Muslim Americans and diverse communities across the United States.
+    const systemPrompt = `You are Community Connect AI — a friendly, knowledgeable assistant helping Muslim Americans and diverse communities across the United States find local resources.
 
-Your job is to understand user questions and return structured search responses about local businesses, events, housing, and jobs.
+You help users discover:
+• Halal restaurants, cafés, bakeries, and food spots
+• Mosques and Islamic centers
+• Halal grocery stores and butchers
+• Job opportunities (full-time, part-time, remote, delivery)
+• Apartments and housing listings
+• Community events (free and paid)
+• Schools, healthcare, and local services
 
-You have access to the following directory data:
-${directoryContext}${locationLine}
+DIRECTORY DATA (your knowledge base):
+${directoryContext}
+${locationContext}
 
-IMPORTANT INSTRUCTIONS:
-1. Always analyze the user's request to determine what they are looking for
-2. If the user has a selected location, ALWAYS filter to that location — never mix cities
-3. Return a helpful, warm, conversational response mentioning the city
-4. Always include a JSON block at the end with the extracted filters
+RESPONSE GUIDELINES:
+1. Be warm, concise, and professional — 2 to 4 sentences maximum
+2. Always mention the city by name
+3. Tell the user what category of results you found and how many, without listing them individually — the results appear as cards below your message automatically
+4. If results exist but are from different cities, mention that clearly
+5. If nothing matches, acknowledge it warmly and suggest a related search or city
+6. Never make up businesses, events, or listings that are not in the directory data above
+7. CRITICAL: If the user asks about jobs → only mention jobs. If housing → only housing. Never mix types.`;
 
-For the JSON block, use this EXACT format:
-<search_filters>
-{
-  "type": "business" | "event" | "housing" | "job" | null,
-  "city": "city name" | null,
-  "state": "state code" | null,
-  "category": "category keyword" | null,
-  "priceMin": number | null,
-  "priceMax": number | null,
-  "rating": number | null,
-  "keywords": ["keyword1"] | null,
-  "listingType": "rent" | "sale" | null,
-  "jobType": "full-time" | "part-time" | "contract" | "freelance" | null,
-  "remote": true | false | null,
-  "bedrooms": number | null,
-  "isFree": true | false | null
-}
-</search_filters>`;
-
-    const messages = [
+    const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
       ...history.slice(-6).map((h) => ({
         role: h.role as 'user' | 'assistant',
         content: h.content,
       })),
-      { role: 'user' as const, content: message },
+      { role: 'user', content: safeMessage },
     ];
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    // Run search synchronously — fast, no API call needed
+    const filters = extractFiltersFromMessage(safeMessage, location);
+    const allResults = searchDirectory(filters);
+    const results = allResults.slice(0, 8);
+    const totalFound = allResults.length;
 
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    // ── No API key: mock streaming ──────────────────────────────────────
     if (!apiKey) {
-      const filters = extractFiltersFromMessage(message, location);
-      const results = searchDirectory(filters);
-      const mockMessage = generateMockResponse(message, activeCity);
-      return NextResponse.json({
-        message: mockMessage,
-        filters,
-        results: results.slice(0, 8),
-        totalFound: results.length,
+      const mockText = generateMockResponse(safeMessage, activeCity);
+      return makeStream(async (ctrl) => {
+        // Simulate word-by-word streaming for the mock case
+        const words = mockText.split(' ');
+        for (let i = 0; i < words.length; i++) {
+          ctrl.enqueue(sseChunk({ type: 'text', delta: (i > 0 ? ' ' : '') + words[i] }));
+          await new Promise((r) => setTimeout(r, 30));
+        }
+        ctrl.enqueue(sseChunk({ type: 'done', filters, results, totalFound }));
+        ctrl.close();
       });
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://communityconnectusa.com',
-        'X-Title': 'Community Connect USA',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-flash-1.5',
-        messages: [{ role: 'system', content: systemPrompt }, ...messages],
-        temperature: 0.7,
-        max_tokens: 1000,
-      }),
-    });
+    // ── OpenAI streaming ────────────────────────────────────────────────
+    const openai = new OpenAI({ apiKey });
 
-    if (!response.ok) {
-      throw new Error(`OpenRouter API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const aiContent = data.choices?.[0]?.message?.content || '';
-
-    const filtersMatch = aiContent.match(/<search_filters>([\s\S]*?)<\/search_filters>/);
-    let filters: SearchFilters = {};
-
-    if (filtersMatch) {
+    return makeStream(async (ctrl) => {
       try {
-        const parsed = JSON.parse(filtersMatch[1]);
-        filters = Object.fromEntries(
-          Object.entries(parsed).filter(([, v]) => v !== null && v !== undefined)
-        ) as SearchFilters;
-      } catch {
-        filters = extractFiltersFromMessage(message, location);
+        const stream = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: openaiMessages,
+          temperature: 0.7,
+          max_tokens: 350,
+          stream: true,
+        });
+
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content ?? '';
+          if (delta) {
+            ctrl.enqueue(sseChunk({ type: 'text', delta }));
+          }
+        }
+
+        ctrl.enqueue(sseChunk({ type: 'done', filters, results, totalFound }));
+        ctrl.close();
+      } catch (err) {
+        console.error('OpenAI stream error:', err);
+        const fallbackText = generateMockResponse(safeMessage, activeCity);
+        ctrl.enqueue(sseChunk({ type: 'text', delta: fallbackText }));
+        ctrl.enqueue(sseChunk({ type: 'done', filters, results, totalFound }));
+        ctrl.close();
       }
-    } else {
-      filters = extractFiltersFromMessage(message, location);
-    }
-
-    // Always enforce the active location
-    if (activeCity && !filters.city) {
-      filters.city = activeCity;
-      filters.state = activeState;
-    }
-
-    const cleanMessage = aiContent
-      .replace(/<search_filters>[\s\S]*?<\/search_filters>/g, '')
-      .trim();
-
-    const results = searchDirectory(filters);
-
-    return NextResponse.json({
-      message: cleanMessage,
-      filters,
-      results: results.slice(0, 8),
-      totalFound: results.length,
     });
   } catch (error) {
     console.error('Chat API error:', error);
-    return NextResponse.json({
-      message: "I'm here to help you discover your community! Try asking about halal restaurants, local mosques, apartments, jobs, or upcoming events.",
-      filters: {},
-      results: [],
-      totalFound: 0,
+    return makeStream(async (ctrl) => {
+      ctrl.enqueue(
+        sseChunk({
+          type: 'error',
+          message:
+            "I'm here to help you discover your community! Try asking about halal restaurants, mosques, apartments, jobs, or upcoming events.",
+        })
+      );
+      ctrl.close();
     });
   }
+
 }
+
+// ── Intent detection ────────────────────────────────────────────────────────
+
+function detectIntent(lower: string): { type: SearchFilters['type']; keywords: string[] } {
+  const keywords: string[] = [];
+
+  // Job-specific occupational terms — checked FIRST to prevent "warehouse" matching "house"
+  const JOB_OCCUPATIONS = [
+    'warehouse', 'driver', 'delivery', 'forklift', 'mechanic', 'engineer',
+    'developer', 'programmer', 'nurse', 'teacher', 'manager', 'accountant',
+    'chef', 'cook', 'security', 'cleaning', 'maintenance', 'technician',
+    'designer', 'salesperson', 'cashier', 'receptionist', 'intern',
+  ];
+  const matchedOccupations = JOB_OCCUPATIONS.filter((o) => lower.includes(o));
+  if (matchedOccupations.length > 0) keywords.push(...matchedOccupations);
+
+  // Generic job signal words
+  const hasJobWord =
+    lower.includes('job') ||
+    lower.includes('jobs') ||
+    lower.includes('career') ||
+    lower.includes('careers') ||
+    lower.includes('hiring') ||
+    lower.includes('hire') ||
+    lower.includes('employ') ||
+    lower.includes('employment') ||
+    lower.includes('vacancy') ||
+    lower.includes('position') ||
+    lower.includes('internship') ||
+    lower.includes('salary') ||
+    lower.includes('resume') ||
+    /\bwork\b/.test(lower) ||    // word boundary — avoids "network", "artwork"
+    matchedOccupations.length > 0;
+
+  if (hasJobWord) return { type: 'job', keywords };
+
+  // Mosque
+  if (
+    lower.includes('mosque') ||
+    lower.includes('masjid') ||
+    lower.includes('islamic center') ||
+    lower.includes('prayer') ||
+    lower.includes('imam') ||
+    lower.includes('jummah')
+  ) return { type: 'business', keywords: ['mosque'] };
+
+  // Grocery / butcher
+  if (lower.includes('grocery') || lower.includes('supermarket') || lower.includes('butcher') || lower.includes('market'))
+    return { type: 'business', keywords: ['grocery'] };
+
+  // Restaurant / food
+  if (
+    lower.includes('restaurant') ||
+    lower.includes('food') ||
+    lower.includes('eat') ||
+    lower.includes('dining') ||
+    lower.includes('cafe') ||
+    lower.includes('bakery') ||
+    lower.includes('halal')
+  ) return { type: 'business', keywords: lower.includes('halal') ? ['halal'] : ['restaurant'] };
+
+  // Healthcare
+  if (lower.includes('clinic') || lower.includes('health') || lower.includes('doctor') || lower.includes('hospital') || lower.includes('dentist'))
+    return { type: 'business', keywords: ['healthcare'] };
+
+  // School / education
+  if (lower.includes('school') || lower.includes('academy') || lower.includes('education') || lower.includes('university') || lower.includes('college'))
+    return { type: 'business', keywords: ['school'] };
+
+  // Housing — uses word boundary for 'house' so 'warehouse' never matches
+  if (
+    lower.includes('apartment') ||
+    lower.includes('apartments') ||
+    /\bhouse\b/.test(lower) ||
+    /\bhomes?\b/.test(lower) ||
+    lower.includes('rent') ||
+    lower.includes('housing') ||
+    lower.includes('studio') ||
+    lower.includes('condo') ||
+    lower.includes('bedroom') ||
+    lower.includes('townhouse') ||
+    lower.includes('lease')
+  ) return { type: 'housing', keywords: [] };
+
+  // Events
+  if (
+    lower.includes('event') ||
+    lower.includes('weekend') ||
+    lower.includes('happening') ||
+    lower.includes('festival') ||
+    lower.includes('gathering') ||
+    lower.includes('concert') ||
+    lower.includes('workshop')
+  ) return { type: 'event', keywords: [] };
+
+  return { type: undefined, keywords: [] };
+}
+
+// ── Filter extraction ────────────────────────────────────────────────────────
 
 function extractFiltersFromMessage(message: string, location?: Location): SearchFilters {
   const lower = message.toLowerCase();
   const filters: SearchFilters = {};
 
-  // Type detection
-  if (lower.includes('restaurant') || lower.includes('food') || lower.includes('eat') || lower.includes('dining')) {
-    filters.type = 'business';
-    filters.category = lower.includes('halal') ? 'halal' : 'restaurant';
-  } else if (lower.includes('mosque') || lower.includes('masjid') || lower.includes('islamic center')) {
-    filters.type = 'business';
-    filters.category = 'mosque';
-  } else if (lower.includes('grocery') || lower.includes('supermarket')) {
-    filters.type = 'business';
-    filters.category = 'grocery';
-  } else if (lower.includes('apartment') || lower.includes('house') || lower.includes('rent') || lower.includes('housing') || lower.includes('studio')) {
-    filters.type = 'housing';
-    if (lower.includes('rent')) filters.listingType = 'rent';
-    if (lower.includes('buy') || lower.includes('sale')) filters.listingType = 'sale';
-  } else if (lower.includes('job') || lower.includes('work') || lower.includes('career') || lower.includes('hire') || lower.includes('employ')) {
-    filters.type = 'job';
+  // Detect primary intent
+  const { type, keywords } = detectIntent(lower);
+  filters.type = type;
+
+  // Type-specific sub-filters
+  if (type === 'job') {
     if (lower.includes('remote')) filters.remote = true;
     if (lower.includes('part-time') || lower.includes('part time')) filters.jobType = 'part-time';
     if (lower.includes('full-time') || lower.includes('full time')) filters.jobType = 'full-time';
-  } else if (lower.includes('event') || lower.includes('weekend') || lower.includes('happening')) {
-    filters.type = 'event';
+    if (lower.includes('contract')) filters.jobType = 'contract';
+    if (lower.includes('freelance')) filters.jobType = 'contract';
+    if (lower.includes('internship')) filters.jobType = 'internship';
+    // Pass occupation terms as keywords to search inside job titles/descriptions
+    if (keywords.length > 0) filters.keywords = keywords;
+  }
+
+  if (type === 'housing') {
+    if (lower.includes('buy') || lower.includes('sale') || lower.includes('purchase') || lower.includes('for sale')) {
+      filters.listingType = 'sale';
+    } else {
+      filters.listingType = 'rent';
+    }
+  }
+
+  if (type === 'event') {
     if (lower.includes('free')) filters.isFree = true;
   }
 
-  if (lower.includes('halal')) {
-    filters.keywords = [...(filters.keywords || []), 'halal'];
-    if (!filters.type) filters.type = 'business';
+  if (type === 'business' && keywords.length > 0) {
+    // Use category filter for businesses (not keywords — avoids double-filtering)
+    filters.category = keywords[0];
   }
 
-  const priceMatch = lower.match(/under\s*\$?(\d+(?:,\d+)?)/);
-  if (priceMatch) {
-    filters.priceMax = parseInt(priceMatch[1].replace(',', ''));
-  }
+  // Price / budget (e.g. "under $1500")
+  const priceMatch = lower.match(/under\s*\$?(\d[\d,]*)/);
+  if (priceMatch) filters.priceMax = parseInt(priceMatch[1].replace(',', ''));
 
-  const ratingMatch = lower.match(/(\d+(?:\.\d+)?)\s*star/);
-  if (ratingMatch) {
-    filters.rating = parseFloat(ratingMatch[1]);
-  }
+  // Bedrooms (e.g. "2 bedroom", "3br")
+  const bedroomMatch = lower.match(/(\d)\s*(?:bed|bedroom|br)\b/);
+  if (bedroomMatch) filters.bedrooms = parseInt(bedroomMatch[1]);
 
-  // Check if user explicitly mentioned a different city
-  const cities = ['new york', 'chicago', 'philadelphia', 'houston', 'dallas', 'los angeles', 'atlanta', 'seattle', 'boston', 'miami'];
+  // Min rating (e.g. "4 star")
+  const ratingMatch = lower.match(/(\d(?:\.\d)?)\s*star/);
+  if (ratingMatch) filters.rating = parseFloat(ratingMatch[1]);
+
+  // City — explicit mention overrides active location
+  const knownCities = [
+    'new york', 'chicago', 'philadelphia', 'houston', 'dallas',
+    'los angeles', 'atlanta', 'seattle', 'boston', 'miami',
+    'phoenix', 'denver', 'detroit', 'nashville', 'san francisco',
+  ];
   let userSpecifiedCity = false;
-  for (const city of cities) {
+  for (const city of knownCities) {
     if (lower.includes(city)) {
-      filters.city = city.split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      filters.city = city.split(' ').map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
       userSpecifiedCity = true;
       break;
     }
   }
-
-  // If user didn't specify a city, use the active location
   if (!userSpecifiedCity && location?.city) {
     filters.city = location.city;
     if (location.state) filters.state = location.state;
@@ -214,27 +327,29 @@ function extractFiltersFromMessage(message: string, location?: Location): Search
   return filters;
 }
 
+// ── Mock response generator (no API key fallback) ───────────────────────────
+
 function generateMockResponse(message: string, city: string): string {
   const lower = message.toLowerCase();
   const loc = city ? ` in ${city}` : '';
 
   if (lower.includes('halal') && (lower.includes('restaurant') || lower.includes('food'))) {
-    return `I found some amazing halal restaurants${loc}! Here are the top-rated options in our directory. Each one is certified halal with great community reviews.`;
+    return `I found some amazing halal restaurants${loc}! Here are the top-rated options in our community directory. Each one is certified halal with great community reviews.`;
   }
-  if (lower.includes('mosque') || lower.includes('masjid')) {
-    return `I found Islamic centers and mosques${loc}. These are community-verified locations offering daily prayers and community services.`;
+  if (lower.includes('mosque') || lower.includes('masjid') || lower.includes('prayer')) {
+    return `I found mosques and Islamic centers${loc}. These are community-verified locations offering daily prayers, Jummah services, and community programs.`;
   }
-  if (lower.includes('apartment') || lower.includes('rent')) {
-    return `Here are available housing listings${loc}! I've filtered for your location and budget requirements.`;
+  if (lower.includes('grocery') || lower.includes('butcher')) {
+    return `I found halal grocery stores and markets${loc}. Great options for fresh halal products, specialty cuts, and imported spices.`;
   }
-  if (lower.includes('job') || lower.includes('work')) {
-    return `I found job opportunities${loc}! Here are positions that match what you're looking for.`;
+  if (lower.includes('apartment') || lower.includes('rent') || lower.includes('housing')) {
+    return `Here are available housing listings${loc}! I've filtered by your location and any budget criteria you mentioned.`;
+  }
+  if (lower.includes('job') || lower.includes('work') || lower.includes('career')) {
+    return `I found job opportunities${loc}! Here are positions that match what you're looking for — from full-time roles to flexible part-time work.`;
   }
   if (lower.includes('event')) {
     return `Here are upcoming community events${loc}! From cultural gatherings to educational workshops, there's something for everyone.`;
-  }
-  if (lower.includes('grocery') || lower.includes('halal market')) {
-    return `I found halal grocery stores and markets${loc}! Great options for fresh halal products and specialty items.`;
   }
   return `I found several listings${loc} that match your search. Here's what's available in our community directory!`;
 }

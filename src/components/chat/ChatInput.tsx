@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -19,7 +19,11 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [input, setInput] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -28,6 +32,58 @@ export default function ChatInput({
         Math.min(textareaRef.current.scrollHeight, hero ? 200 : 160) + 'px';
     }
   }, [input, hero]);
+
+  const startListening = useCallback(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+
+    if (!SR) {
+      setVoiceError(true);
+      setTimeout(() => setVoiceError(false), 3500);
+      return;
+    }
+
+    // Toggle off if already listening
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SR();
+      recognition.lang = navigator.language || 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.continuous = false;
+
+      recognition.onstart = () => setListening(true);
+      recognition.onend = () => setListening(false);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onerror = (e: any) => {
+        setListening(false);
+        if (e.error === 'not-allowed' || e.error === 'permission-denied' || e.error === 'service-not-allowed') {
+          setVoiceError(true);
+          setTimeout(() => setVoiceError(false), 3500);
+        }
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = (e: any) => {
+        const transcript = e.results[0][0].transcript;
+        setInput((prev) => (prev ? prev + ' ' + transcript : transcript));
+        setTimeout(() => textareaRef.current?.focus(), 50);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      setVoiceError(true);
+      setTimeout(() => setVoiceError(false), 3500);
+    }
+  }, [listening]);
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -50,6 +106,24 @@ export default function ChatInput({
   if (hero) {
     return (
       <div className={`ai-input-border${isFocused ? ' focused' : ''}`}>
+        {/* Listening / error indicator */}
+        {(listening || voiceError) && (
+          <div className="flex items-center gap-2 px-5 pt-4 pb-0 md:px-7">
+            {listening ? (
+              <>
+                <span
+                  className="w-2 h-2 rounded-full bg-[#00E38C] animate-pulse"
+                  style={{ boxShadow: '0 0 8px rgba(0,227,140,0.9)' }}
+                />
+                <span className="text-sm font-medium text-[#00E38C]">Listening...</span>
+              </>
+            ) : (
+              <span className="text-sm font-medium text-red-400">
+                Voice input not available. Allow microphone access or use Chrome/Safari.
+              </span>
+            )}
+          </div>
+        )}
         <div className="flex items-end gap-4 px-5 py-5 md:px-7 md:py-6">
           {/* AI icon */}
           <div className="flex-shrink-0 mb-0.5">
@@ -97,6 +171,43 @@ export default function ChatInput({
               color: '#fff',
             }}
           />
+
+          {/* Mic button */}
+          <div className="flex-shrink-0">
+            <button
+              onClick={startListening}
+              type="button"
+              aria-label={listening ? 'Stop listening' : 'Start voice input'}
+              className="p-3.5 rounded-2xl transition-all duration-300 flex items-center justify-center"
+              style={
+                listening
+                  ? {
+                      background: 'rgba(0,227,140,0.15)',
+                      border: '1px solid rgba(0,227,140,0.5)',
+                      boxShadow: '0 0 20px rgba(0,227,140,0.4)',
+                    }
+                  : {
+                      background: 'rgba(255,255,255,0.06)',
+                      border: '1px solid rgba(255,255,255,0.10)',
+                    }
+              }
+            >
+              {listening ? (
+                /* Stop icon */
+                <svg className="w-5 h-5 text-[#00E38C] animate-pulse" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              ) : (
+                /* Mic icon */
+                <svg className="w-5 h-5 text-white/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              )}
+            </button>
+          </div>
 
           {/* Send button */}
           <div className="flex-shrink-0">

@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/lib/context';
-import { useMessages } from '@/lib/messages-context';
 import { useLanguage } from '@/lib/language-context';
 import { US_CITIES } from '@/lib/data';
 
@@ -56,12 +55,11 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: '/messages',
-    key: 'messages',
-    showBadge: true,
+    href: '/support',
+    key: 'support',
     icon: (
       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
   },
@@ -167,10 +165,7 @@ function LanguageToggle() {
 export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout, selectedCity, setSelectedCity, setSelectedState } = useApp();
-  const { unreadUserCount } = useMessages();
   const { t } = useLanguage();
-
-  const unread = user ? unreadUserCount(user.id) : 0;
 
   return (
     <aside className="hidden lg:flex flex-col fixed left-0 top-0 bottom-0 w-64 z-40 glass border-r border-white/8">
@@ -201,14 +196,7 @@ export default function Sidebar() {
           const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
           return (
             <Link key={item.href} href={item.href} className={`sidebar-link ${active ? 'active' : ''}`}>
-              <span className="relative flex-shrink-0">
-                {item.icon}
-                {item.showBadge && unread > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-                    {unread > 9 ? '9+' : unread}
-                  </span>
-                )}
-              </span>
+              <span className="flex-shrink-0">{item.icon}</span>
               <span>{t('nav', item.key)}</span>
             </Link>
           );
@@ -230,7 +218,7 @@ export default function Sidebar() {
             <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
-            <span>Admin</span>
+            <span>{t('nav', 'adminDashboard')}</span>
           </Link>
         )}
       </nav>
@@ -260,17 +248,17 @@ export default function Sidebar() {
               <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
-              <span className="text-xs">Sign out</span>
+              <span className="text-xs">{t('auth', 'logout')}</span>
             </button>
           </div>
         ) : (
           <div className="flex gap-2">
             <Link href="/auth/login" className="flex-1 text-center py-2 text-xs font-semibold rounded-xl border border-white/15 text-white/70 hover:text-white hover:border-white/30 transition-all">
-              Sign In
+              {t('auth', 'signIn')}
             </Link>
             <Link href="/auth/register" className="flex-1 text-center py-2 text-xs font-bold rounded-xl text-[#050816] transition-all"
               style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>
-              Join
+              {t('auth', 'signUp')}
             </Link>
           </div>
         )}

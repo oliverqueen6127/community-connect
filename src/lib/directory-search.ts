@@ -43,10 +43,13 @@ export function searchDirectory(filters: SearchFilters): Listing[] {
   }
 
   if (filters.keywords && filters.keywords.length > 0) {
-    results = results.filter((item) => {
+    const beforeKeywords = results;
+    const afterKeywords = results.filter((item) => {
       const searchStr = JSON.stringify(item).toLowerCase();
       return filters.keywords!.some((kw) => searchStr.includes(kw.toLowerCase()));
     });
+    // Keep keyword-filtered results if any matched; otherwise fall back to pre-keyword list
+    results = afterKeywords.length > 0 ? afterKeywords : beforeKeywords;
   }
 
   if (filters.rating !== undefined) {

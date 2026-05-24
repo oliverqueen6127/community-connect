@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage, AISearchResponse } from '@/lib/types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { ChatMessage, Listing } from '@/lib/types';
 import { useApp } from '@/lib/context';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
@@ -21,63 +21,171 @@ export default function HomeAIChat() {
     }
   }, [messages, isLoading]);
 
-  const addMessage = (msg: Omit<ChatMessage, 'id' | 'timestamp'>): ChatMessage => {
-    const newMsg: ChatMessage = {
-      ...msg,
-      id: Math.random().toString(36).substr(2, 9),
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, newMsg]);
-    return newMsg;
+  const makeId = () => Math.random().toString(36).substr(2, 9);
+
+  const addUserMessage = (content: string): void => {
+    setMessages((prev) => [
+      ...prev,
+      { id: makeId(), role: 'user', content, timestamp: new Date() },
+    ]);
   };
+
+  // Core streaming function — shared by sendMessage and handleRegenerate
+  const sendStream = useCallback(
+    async (
+      content: string,
+      history: { role: string; content: string }[]
+    ) => {
+      const streamingId = makeId();
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: streamingId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          isStreaming: true,
+        },
+      ]);
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: content,
+            history,
+            location: { city: selectedCity, state: selectedState },
+          }),
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6)) as {
+                type: string;
+                delta?: string;
+                message?: string;
+                results?: Listing[];
+                totalFound?: number;
+              };
+
+              if (data.type === 'text' && data.delta) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId
+                      ? { ...m, content: m.content + data.delta }
+                      : m
+                  )
+                );
+              } else if (data.type === 'done') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId
+                      ? { ...m, isStreaming: false, results: data.results ?? [] }
+                      : m
+                  )
+                );
+              } else if (data.type === 'error') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === streamingId
+                      ? {
+                          ...m,
+                          content:
+                            data.message ??
+                            "Sorry, I had trouble processing that. Please try again!",
+                          isStreaming: false,
+                        }
+                      : m
+                  )
+                );
+              }
+            } catch {
+              // ignore malformed SSE line
+            }
+          }
+        }
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === streamingId
+              ? {
+                  ...m,
+                  content:
+                    "Sorry, I had trouble processing your request. Please try again!",
+                  isStreaming: false,
+                }
+              : m
+          )
+        );
+      } finally {
+        setIsLoading(false);
+        // Safety: ensure isStreaming is cleared even if done event was missed
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === streamingId && m.isStreaming ? { ...m, isStreaming: false } : m
+          )
+        );
+      }
+    },
+    [selectedCity, selectedState]
+  );
 
   const sendMessage = async (content: string) => {
     if (isLoading) return;
     if (!hasStarted) setHasStarted(true);
 
-    addMessage({ role: 'user', content });
+    // Snapshot history BEFORE adding the new user message
+    const history = messages
+      .slice(-6)
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    addUserMessage(content);
     setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: content,
-          history: messages.slice(-6).map((m) => ({ role: m.role, content: m.content })),
-          location: { city: selectedCity, state: selectedState },
-        }),
-      });
-
-      const data: AISearchResponse = await response.json();
-
-      addMessage({
-        role: 'assistant',
-        content: data.message || `Here's what I found in ${selectedCity}!`,
-        results: data.results || [],
-      });
-    } catch {
-      addMessage({
-        role: 'assistant',
-        content: `Sorry, I had trouble processing your request. Please try again!`,
-        results: [],
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    await sendStream(content, history);
   };
 
   const handleRegenerate = async () => {
-    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
-    if (!lastUserMessage) return;
+    if (isLoading) return;
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    if (!lastUserMsg) return;
+
+    // History = everything before the last assistant message
+    const historySlice = messages
+      .slice(0, -1)
+      .slice(-6)
+      .map((m) => ({ role: m.role, content: m.content }));
+
     setMessages((prev) => prev.slice(0, -1));
-    await sendMessage(lastUserMessage.content);
+    setIsLoading(true);
+    await sendStream(lastUserMsg.content, historySlice);
   };
 
   const clearChat = () => {
     setMessages([]);
     setHasStarted(false);
   };
+
+  // Show typing indicator only before the first streaming chunk arrives
+  const isWaiting = isLoading && !messages.some((m) => m.isStreaming);
 
   /* ── IDLE STATE — hero input + suggestion chips ── */
   if (!hasStarted) {
@@ -115,7 +223,10 @@ export default function HomeAIChat() {
             </svg>
           </div>
           <span className="font-bold text-white text-sm">Community Connect AI</span>
-          <span className="w-2 h-2 rounded-full bg-[#00E38C] animate-pulse" style={{ boxShadow: '0 0 6px rgba(0,227,140,0.8)' }} />
+          <span
+            className="w-2 h-2 rounded-full bg-[#00E38C] animate-pulse"
+            style={{ boxShadow: '0 0 6px rgba(0,227,140,0.8)' }}
+          />
           <span className="hidden sm:inline-flex items-center gap-1 glass border border-white/10 text-white/40 text-xs font-semibold rounded-full px-2 py-0.5">
             <svg className="w-3 h-3 text-[#00E38C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -124,7 +235,7 @@ export default function HomeAIChat() {
           </span>
         </div>
 
-        {/* Clear button — visible, glass, red on hover */}
+        {/* Clear button */}
         <button
           onClick={clearChat}
           className="group flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-semibold transition-all duration-200"
@@ -161,14 +272,18 @@ export default function HomeAIChat() {
           <MessageBubble
             key={msg.id}
             message={msg}
-            onRegenerate={msg.role === 'assistant' && i === messages.length - 1 ? handleRegenerate : undefined}
+            onRegenerate={
+              msg.role === 'assistant' && i === messages.length - 1 && !msg.isStreaming
+                ? handleRegenerate
+                : undefined
+            }
           />
         ))}
-        {isLoading && <TypingIndicator />}
+        {isWaiting && <TypingIndicator />}
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
-      {/* Input — hero style with animated border, always visible and usable */}
+      {/* Input */}
       <div className="px-3 pb-3 pt-2 border-t border-white/8 flex-shrink-0">
         <ChatInput
           hero
