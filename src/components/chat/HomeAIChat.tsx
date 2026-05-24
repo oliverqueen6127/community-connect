@@ -79,74 +79,84 @@ export default function HomeAIChat() {
     setHasStarted(false);
   };
 
+  /* ── IDLE STATE — hero input + suggestion chips ── */
   if (!hasStarted) {
     return (
-      <section className="py-8 px-4">
-        <div className="max-w-3xl mx-auto">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-[#1B4332] to-[#52B788] mb-4 shadow-xl">
-              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-              </svg>
-            </div>
-            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-2">
-              Community Connect <span className="text-[#52B788]">AI</span>
-            </h2>
-            <p className="text-gray-500 text-base md:text-lg max-w-xl mx-auto mb-2">
-              Discover businesses, jobs, housing, and events with AI.
-            </p>
-            {/* Active location indicator */}
-            <div className="inline-flex items-center gap-1.5 bg-[#1B4332]/8 border border-[#1B4332]/15 rounded-full px-3 py-1.5 text-sm text-[#1B4332] font-medium">
-              <svg className="w-3.5 h-3.5 text-[#52B788]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              </svg>
-              Searching in <span className="font-black ml-1">{selectedCity}, {selectedState}</span>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <ChatInput onSend={sendMessage} isLoading={isLoading} />
-          </div>
-
-          <SuggestionChips onSelect={sendMessage} />
+      <div className="w-full">
+        <div className="mb-5">
+          <ChatInput
+            hero
+            onSend={sendMessage}
+            isLoading={isLoading}
+            placeholder={`Ask me about businesses, housing, jobs in ${selectedCity}...`}
+          />
         </div>
-      </section>
+        <SuggestionChips onSelect={sendMessage} />
+      </div>
     );
   }
 
+  /* ── ACTIVE CHAT STATE ── */
   return (
-    <section className="flex flex-col h-[calc(100vh-140px)] md:h-[calc(100vh-80px)]">
+    <section className="flex flex-col h-[calc(100vh-130px)] md:h-[calc(100vh-70px)]">
+
       {/* Chat header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-white/80 backdrop-blur-sm">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/8 glass flex-shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center">
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(135deg, rgba(0,227,140,0.2), rgba(0,194,255,0.2))',
+              border: '1px solid rgba(0,227,140,0.3)',
+            }}
+          >
+            <svg className="w-4 h-4 text-[#00E38C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
           </div>
-          <span className="font-bold text-gray-800 text-sm">Community Connect AI</span>
-          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          {/* Location badge */}
-          <span className="hidden sm:inline-flex items-center gap-1 bg-[#1B4332]/8 text-[#1B4332] text-xs font-semibold rounded-full px-2 py-0.5">
-            <svg className="w-3 h-3 text-[#52B788]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <span className="font-bold text-white text-sm">Community Connect AI</span>
+          <span className="w-2 h-2 rounded-full bg-[#00E38C] animate-pulse" style={{ boxShadow: '0 0 6px rgba(0,227,140,0.8)' }} />
+          <span className="hidden sm:inline-flex items-center gap-1 glass border border-white/10 text-white/40 text-xs font-semibold rounded-full px-2 py-0.5">
+            <svg className="w-3 h-3 text-[#00E38C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
             </svg>
             {selectedCity}
           </span>
         </div>
+
+        {/* Clear button — visible, glass, red on hover */}
         <button
           onClick={clearChat}
-          className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-3 py-1.5 rounded-xl hover:bg-gray-100 transition-colors"
+          className="group flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-semibold transition-all duration-200"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            color: 'rgba(255,255,255,0.65)',
+          }}
+          onMouseEnter={(e) => {
+            const el = e.currentTarget;
+            el.style.background = 'rgba(239,68,68,0.12)';
+            el.style.borderColor = 'rgba(239,68,68,0.35)';
+            el.style.color = '#f87171';
+            el.style.boxShadow = '0 0 14px rgba(239,68,68,0.18)';
+          }}
+          onMouseLeave={(e) => {
+            const el = e.currentTarget;
+            el.style.background = 'rgba(255,255,255,0.06)';
+            el.style.borderColor = 'rgba(255,255,255,0.12)';
+            el.style.color = 'rgba(255,255,255,0.65)';
+            el.style.boxShadow = 'none';
+          }}
         >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
-          Clear
+          <span>Clear</span>
         </button>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto py-4 space-y-2">
+      <div className="flex-1 overflow-y-auto py-4 space-y-2 min-h-0">
         {messages.map((msg, i) => (
           <MessageBubble
             key={msg.id}
@@ -158,9 +168,14 @@ export default function HomeAIChat() {
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
-      {/* Input */}
-      <div className="p-4 border-t border-gray-100 bg-white/80 backdrop-blur-sm">
-        <ChatInput onSend={sendMessage} isLoading={isLoading} compact />
+      {/* Input — hero style with animated border, always visible and usable */}
+      <div className="px-3 pb-3 pt-2 border-t border-white/8 flex-shrink-0">
+        <ChatInput
+          hero
+          onSend={sendMessage}
+          isLoading={isLoading}
+          placeholder="Ask a follow-up question to refine results..."
+        />
       </div>
     </section>
   );

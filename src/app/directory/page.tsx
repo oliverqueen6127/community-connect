@@ -15,13 +15,11 @@ export default function DirectoryPage() {
   const [sortBy, setSortBy] = useState<'rating' | 'name' | 'reviews'>('rating');
   const [showOpen, setShowOpen] = useState(false);
 
-  // Step 1: strict city filter
   const byCity = useMemo(
     () => BUSINESSES.filter((b) => b.city.toLowerCase() === selectedCity.toLowerCase()),
     [selectedCity]
   );
 
-  // Step 2: apply user filters within that city
   const filtered = useMemo(() => {
     let results = byCity;
 
@@ -53,28 +51,28 @@ export default function DirectoryPage() {
   }, [byCity, search, selectedCategory, sortBy, showOpen]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 pt-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-black text-gray-900 mb-1">Business Directory</h1>
-        <div className="flex items-center gap-1.5 text-sm text-gray-500">
-          <svg className="w-4 h-4 text-[#52B788]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <h1 className="text-3xl font-black text-white mb-1">Business Directory</h1>
+        <div className="flex items-center gap-1.5 text-sm text-white/40">
+          <svg className="w-4 h-4 text-[#00E38C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
           </svg>
-          Showing businesses in <span className="font-semibold text-[#1B4332]">{selectedCity}, {selectedState}</span>
+          Showing businesses in <span className="font-semibold text-[#00E38C] ml-1">{selectedCity}, {selectedState}</span>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6 space-y-4">
+      <div className="glass border border-white/8 rounded-2xl p-4 mb-6 space-y-4">
         <div className="relative">
-          <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search in ${selectedCity}...`}
-            className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#52B788] text-gray-800 bg-gray-50"
+            className="glass-input w-full pl-12 pr-4 py-3 rounded-xl text-sm"
           />
         </div>
 
@@ -84,9 +82,12 @@ export default function DirectoryPage() {
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all capitalize ${
-                  selectedCategory === cat ? 'bg-[#1B4332] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all capitalize ${
+                  selectedCategory === cat
+                    ? 'text-[#050816]'
+                    : 'glass border border-white/10 text-white/40 hover:text-white hover:border-white/20'
                 }`}
+                style={selectedCategory === cat ? { background: 'linear-gradient(135deg, #00E38C, #00C2FF)' } : {}}
               >
                 {cat}
               </button>
@@ -97,27 +98,27 @@ export default function DirectoryPage() {
             <label className="flex items-center gap-2 cursor-pointer">
               <div
                 onClick={() => setShowOpen(!showOpen)}
-                className={`relative w-10 h-5 rounded-full transition-colors ${showOpen ? 'bg-[#52B788]' : 'bg-gray-200'}`}
+                className={`relative w-10 h-5 rounded-full transition-colors ${showOpen ? 'bg-[#00E38C]' : 'bg-white/10'}`}
               >
                 <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${showOpen ? 'translate-x-5' : 'translate-x-0.5'}`} />
               </div>
-              <span className="text-sm text-gray-600">Open Now</span>
+              <span className="text-sm text-white/40">Open Now</span>
             </label>
 
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="text-sm border border-gray-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-[#52B788] bg-white text-gray-700"
+              className="text-sm glass border border-white/10 rounded-xl px-3 py-1.5 focus:outline-none text-white/60 bg-transparent"
             >
-              <option value="rating">Top Rated</option>
-              <option value="reviews">Most Reviewed</option>
-              <option value="name">A-Z</option>
+              <option value="rating" className="bg-[#050816]">Top Rated</option>
+              <option value="reviews" className="bg-[#050816]">Most Reviewed</option>
+              <option value="name" className="bg-[#050816]">A-Z</option>
             </select>
           </div>
         </div>
       </div>
 
-      <p className="text-sm text-gray-500 mb-4">
+      <p className="text-sm text-white/30 mb-4">
         {filtered.length} {filtered.length === 1 ? 'business' : 'businesses'} in {selectedCity}
       </p>
 
@@ -125,7 +126,7 @@ export default function DirectoryPage() {
         <EmptyState
           icon="🏪"
           title="No businesses in this city"
-          description={`There are no businesses listed in ${selectedCity} yet. Try selecting a different city from the location selector above.`}
+          description={`There are no businesses listed in ${selectedCity} yet. Try selecting a different city.`}
           city={`${selectedCity}, ${selectedState}`}
           actionLabel="Change Location"
           onAction={() => document.querySelector<HTMLButtonElement>('[data-city-selector]')?.click()}
@@ -134,12 +135,12 @@ export default function DirectoryPage() {
         <EmptyState
           icon="🔍"
           title="No matches found"
-          description={`No businesses in ${selectedCity} match your current filters. Try adjusting your search or category.`}
+          description={`No businesses in ${selectedCity} match your current filters.`}
           actionLabel="Clear Filters"
           onAction={() => { setSearch(''); setSelectedCategory('All'); setShowOpen(false); }}
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map((business) => (
             <BusinessCard
               key={business.id}

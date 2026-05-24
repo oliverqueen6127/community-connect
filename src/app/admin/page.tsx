@@ -18,11 +18,11 @@ const MOCK_USERS = [
 
 function StatCard({ label, value, emoji, href, badge }: { label: string; value: number | string; emoji: string; href?: string; badge?: number }) {
   const inner = (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow cursor-pointer">
+    <div className="glass-card border border-white/8 hover:border-[#00E38C]/30 rounded-2xl p-5 transition-all duration-300 cursor-pointer">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-gray-500 font-medium">{label}</p>
-          <p className="text-3xl font-black text-gray-900 mt-1">{value}</p>
+          <p className="text-sm text-white/40 font-medium">{label}</p>
+          <p className="text-3xl font-black text-white mt-1">{value}</p>
         </div>
         <div className="relative">
           <span className="text-3xl">{emoji}</span>
@@ -41,14 +41,14 @@ function DataTable({ columns, rows }: { columns: string[]; rows: (string | React
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-100">
-            {columns.map((c) => <th key={c} className="text-left py-3 px-4 text-xs font-bold text-gray-500 uppercase tracking-wide">{c}</th>)}
+          <tr className="border-b border-white/8">
+            {columns.map((c) => <th key={c} className="text-left py-3 px-4 text-xs font-bold text-white/30 uppercase tracking-wide">{c}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-              {row.map((cell, j) => <td key={j} className="py-3 px-4 text-gray-700">{cell}</td>)}
+            <tr key={i} className="border-b border-white/5 hover:bg-white/[0.03] transition-colors">
+              {row.map((cell, j) => <td key={j} className="py-3 px-4 text-white/70">{cell}</td>)}
             </tr>
           ))}
         </tbody>
@@ -75,7 +75,7 @@ export default function AdminPage() {
   if (isLoading || !user || user.role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#1B4332] to-[#52B788] animate-pulse" />
+        <div className="w-12 h-12 rounded-2xl animate-pulse" style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }} />
       </div>
     );
   }
@@ -110,17 +110,17 @@ export default function AdminPage() {
       {/* Top bar */}
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-black text-gray-900">{t('admin', 'welcomeBack')}, {user.name} 👋</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{t('admin', 'title')}</p>
+          <h1 className="text-2xl font-black text-white">{t('admin', 'welcomeBack')}, {user.name} 👋</h1>
+          <p className="text-white/40 text-sm mt-0.5">{t('admin', 'title')}</p>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/add-listing" className="px-4 py-2 text-sm font-semibold text-[#1B4332] border border-[#1B4332] rounded-xl hover:bg-[#1B4332] hover:text-white transition-colors flex items-center gap-1.5">
+          <Link href="/add-listing" className="px-4 py-2 text-sm font-semibold text-[#00E38C] border border-[#00E38C]/30 rounded-xl hover:bg-[#00E38C]/10 transition-all flex items-center gap-1.5">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             {t('nav', 'addListing')}
           </Link>
           <button
             onClick={() => { logout(); router.push('/'); }}
-            className="px-4 py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors flex items-center gap-1.5"
+            className="px-4 py-2 text-sm font-semibold text-red-400 border border-red-500/20 rounded-xl hover:bg-red-500/10 transition-all flex items-center gap-1.5"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -131,19 +131,22 @@ export default function AdminPage() {
       </div>
 
       {/* Tab nav */}
-      <div className="flex gap-1 flex-wrap mb-8 bg-white rounded-2xl p-1.5 border border-gray-100 shadow-sm">
+      <div className="flex gap-1 flex-wrap mb-8 glass border border-white/8 rounded-2xl p-1.5">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === tab.key ? 'bg-[#1B4332] text-white' : 'text-gray-600 hover:bg-gray-50'
+              activeTab === tab.key ? 'text-[#050816]' : 'text-white/40 hover:text-white hover:bg-white/5'
             }`}
+            style={activeTab === tab.key ? { background: 'linear-gradient(135deg, #00E38C, #00C2FF)' } : {}}
           >
             <span>{tab.emoji}</span>
             <span className="hidden sm:inline">{tab.label}</span>
             {tab.badge !== undefined && tab.badge > 0 && (
-              <span className="w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">{tab.badge > 9 ? '9+' : tab.badge}</span>
+              <span className={`w-4 h-4 text-[9px] font-bold rounded-full flex items-center justify-center ${activeTab === tab.key ? 'bg-black/20 text-[#050816]' : 'bg-red-500 text-white'}`}>
+                {tab.badge > 9 ? '9+' : tab.badge}
+              </span>
             )}
           </button>
         ))}
@@ -164,20 +167,20 @@ export default function AdminPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-black text-gray-900 mb-4">{t('admin', 'recentActivity')}</h3>
+            <div className="glass border border-white/8 rounded-2xl p-5">
+              <h3 className="font-black text-white mb-4">{t('admin', 'recentActivity')}</h3>
               {recentActivity.length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-8">No activity yet</p>
+                <p className="text-white/30 text-sm text-center py-8">No activity yet</p>
               ) : (
                 <div className="space-y-3">
                   {recentActivity.map((item, i) => (
                     <div key={i} className="flex items-center gap-3">
                       <span className="text-xl">{typeEmoji(item.type)}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
-                        <p className="text-xs text-gray-400">{item.city}</p>
+                        <p className="text-sm font-semibold text-white truncate">{item.name}</p>
+                        <p className="text-xs text-white/30">{item.city}</p>
                       </div>
-                      <span className="text-xs text-gray-400 flex-shrink-0">
+                      <span className="text-xs text-white/20 flex-shrink-0">
                         {new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       </span>
                     </div>
@@ -186,22 +189,22 @@ export default function AdminPage() {
               )}
             </div>
 
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <div className="glass border border-white/8 rounded-2xl p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-black text-gray-900">{t('admin', 'latestMessages')}</h3>
-                <Link href="/admin/messages" className="text-xs font-semibold text-[#1B4332] hover:underline">View all →</Link>
+                <h3 className="font-black text-white">{t('admin', 'latestMessages')}</h3>
+                <Link href="/admin/messages" className="text-xs font-semibold text-[#00E38C] hover:text-[#00C2FF] transition-colors">View all →</Link>
               </div>
               {supportMessages.length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-8">No messages yet</p>
+                <p className="text-white/30 text-sm text-center py-8">No messages yet</p>
               ) : (
                 <div className="space-y-3">
                   {supportMessages.slice(-5).reverse().map((msg) => (
-                    <div key={msg.id} className={`p-3 rounded-xl text-sm ${!msg.read ? 'bg-[#1B4332]/5 border border-[#52B788]/30' : 'bg-gray-50'}`}>
+                    <div key={msg.id} className={`p-3 rounded-xl text-sm border ${!msg.read ? 'bg-[#00E38C]/5 border-[#00E38C]/20' : 'bg-white/[0.03] border-white/8'}`}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-gray-900">{msg.fromUserName}</span>
-                        {!msg.read && <span className="text-[10px] font-bold text-[#52B788]">NEW</span>}
+                        <span className="font-bold text-white text-sm">{msg.fromUserName}</span>
+                        {!msg.read && <span className="text-[10px] font-bold text-[#00E38C]">NEW</span>}
                       </div>
-                      <p className="text-gray-600 text-xs line-clamp-2">{msg.content}</p>
+                      <p className="text-white/40 text-xs line-clamp-2">{msg.content}</p>
                     </div>
                   ))}
                 </div>
@@ -212,72 +215,76 @@ export default function AdminPage() {
       )}
 
       {activeTab === 'businesses' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
-            <h3 className="font-black text-gray-900">{BUSINESSES.length} {t('admin', 'businesses')}</h3>
-            <Link href="/add-listing" className="px-3 py-1.5 bg-[#1B4332] text-white text-xs font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">+ Add</Link>
+        <div className="glass border border-white/8 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
+            <h3 className="font-black text-white">{BUSINESSES.length} {t('admin', 'businesses')}</h3>
+            <Link href="/add-listing" className="px-3 py-1.5 text-[#050816] text-xs font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
+              style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>+ Add</Link>
           </div>
           <DataTable
             columns={['Name', 'Category', 'City', 'Rating', 'Status']}
             rows={BUSINESSES.map((b) => [
-              <span key="n" className="font-semibold">{b.name}</span>,
+              <span key="n" className="font-semibold text-white">{b.name}</span>,
               b.category,
               `${b.city}, ${b.state}`,
               <span key="r">⭐ {b.rating}</span>,
-              <span key="s" className={`text-xs font-bold px-2 py-0.5 rounded-full ${b.isOpen ? 'bg-[#52B788]/15 text-[#1B4332]' : 'bg-red-50 text-red-600'}`}>{b.isOpen ? 'Open' : 'Closed'}</span>,
+              <span key="s" className={`text-xs font-bold px-2 py-0.5 rounded-full ${b.isOpen ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{b.isOpen ? 'Open' : 'Closed'}</span>,
             ])}
           />
         </div>
       )}
 
       {activeTab === 'events' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
-            <h3 className="font-black text-gray-900">{EVENTS.length} {t('admin', 'events')}</h3>
-            <Link href="/add-listing" className="px-3 py-1.5 bg-[#1B4332] text-white text-xs font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">+ Add</Link>
+        <div className="glass border border-white/8 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
+            <h3 className="font-black text-white">{EVENTS.length} {t('admin', 'events')}</h3>
+            <Link href="/add-listing" className="px-3 py-1.5 text-[#050816] text-xs font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
+              style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>+ Add</Link>
           </div>
           <DataTable
             columns={['Title', 'Organizer', 'Date', 'City', 'Price']}
             rows={EVENTS.map((e) => [
-              <span key="t" className="font-semibold">{e.title}</span>,
+              <span key="t" className="font-semibold text-white">{e.title}</span>,
               e.organizer,
               new Date(e.date).toLocaleDateString(),
               `${e.city}, ${e.state}`,
-              e.isFree ? <span key="f" className="text-xs font-bold text-[#52B788]">Free</span> : `$${e.price}`,
+              e.isFree ? <span key="f" className="text-xs font-bold text-[#00E38C]">Free</span> : `$${e.price}`,
             ])}
           />
         </div>
       )}
 
       {activeTab === 'housing' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
-            <h3 className="font-black text-gray-900">{HOUSING.length} {t('admin', 'housing')}</h3>
-            <Link href="/add-listing" className="px-3 py-1.5 bg-[#1B4332] text-white text-xs font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">+ Add</Link>
+        <div className="glass border border-white/8 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
+            <h3 className="font-black text-white">{HOUSING.length} {t('admin', 'housing')}</h3>
+            <Link href="/add-listing" className="px-3 py-1.5 text-[#050816] text-xs font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
+              style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>+ Add</Link>
           </div>
           <DataTable
             columns={['Title', 'Type', 'Price', 'City', 'Available']}
             rows={HOUSING.map((h) => [
-              <span key="t" className="font-semibold">{h.title}</span>,
+              <span key="t" className="font-semibold text-white">{h.title}</span>,
               `${h.propertyType} (${h.listingType})`,
               `$${h.price.toLocaleString()}${h.listingType === 'rent' ? '/mo' : ''}`,
               `${h.city}, ${h.state}`,
-              <span key="a" className={`text-xs font-bold px-2 py-0.5 rounded-full ${h.available ? 'bg-[#52B788]/15 text-[#1B4332]' : 'bg-red-50 text-red-600'}`}>{h.available ? 'Available' : 'Taken'}</span>,
+              <span key="a" className={`text-xs font-bold px-2 py-0.5 rounded-full ${h.available ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{h.available ? 'Available' : 'Taken'}</span>,
             ])}
           />
         </div>
       )}
 
       {activeTab === 'jobs' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between">
-            <h3 className="font-black text-gray-900">{JOBS.length} {t('admin', 'jobs')}</h3>
-            <Link href="/add-listing" className="px-3 py-1.5 bg-[#1B4332] text-white text-xs font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">+ Add</Link>
+        <div className="glass border border-white/8 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
+            <h3 className="font-black text-white">{JOBS.length} {t('admin', 'jobs')}</h3>
+            <Link href="/add-listing" className="px-3 py-1.5 text-[#050816] text-xs font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
+              style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>+ Add</Link>
           </div>
           <DataTable
             columns={['Title', 'Company', 'Type', 'Salary', 'City']}
             rows={JOBS.map((j) => [
-              <span key="t" className="font-semibold">{j.title}</span>,
+              <span key="t" className="font-semibold text-white">{j.title}</span>,
               j.company,
               j.jobType,
               j.salary,
@@ -288,34 +295,35 @@ export default function AdminPage() {
       )}
 
       {activeTab === 'listings' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-          <div className="px-5 py-4 border-b border-gray-50">
-            <h3 className="font-black text-gray-900">{t('admin', 'userListings')} ({userListings.length})</h3>
+        <div className="glass border border-white/8 rounded-2xl">
+          <div className="px-5 py-4 border-b border-white/8">
+            <h3 className="font-black text-white">{t('admin', 'userListings')} ({userListings.length})</h3>
           </div>
           {userListings.length === 0 ? (
             <div className="text-center py-16">
               <div className="text-5xl mb-4">📋</div>
-              <p className="text-gray-400">No user-submitted listings yet.</p>
+              <p className="text-white/30">No user-submitted listings yet.</p>
             </div>
           ) : (
-            <div className="divide-y divide-gray-50">
+            <div className="divide-y divide-white/5">
               {userListings.map((listing) => {
                 const title = ('name' in listing.data ? listing.data.name as string : '') || ('title' in listing.data ? listing.data.title as string : '') || 'Untitled';
                 return (
-                  <div key={listing.id} className="p-5 flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-xl flex-shrink-0">
+                  <div key={listing.id} className="p-5 flex items-center gap-4 hover:bg-white/[0.02] transition-colors">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-shrink-0"
+                      style={{ background: 'linear-gradient(135deg, rgba(0,227,140,0.15), rgba(0,194,255,0.15))', border: '1px solid rgba(0,227,140,0.2)' }}>
                       {typeEmoji(listing.type)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 text-sm truncate">{title}</p>
-                      <p className="text-xs text-gray-500">{listing.publishedByName} · {listing.data.city}, {listing.data.state}</p>
-                      <p className="text-xs text-gray-400">{new Date(listing.createdAt).toLocaleDateString()}</p>
+                      <p className="font-bold text-white text-sm truncate">{title}</p>
+                      <p className="text-xs text-white/40">{listing.publishedByName} · {listing.data.city}, {listing.data.state}</p>
+                      <p className="text-xs text-white/20">{new Date(listing.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${listing.status === 'active' ? 'bg-[#52B788]/15 text-[#1B4332]' : 'bg-yellow-100 text-yellow-700'}`}>
+                      <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${listing.status === 'active' ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'}`}>
                         {listing.status}
                       </span>
-                      <button onClick={() => deleteListing(listing.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors">
+                      <button onClick={() => deleteListing(listing.id)} className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
@@ -330,19 +338,25 @@ export default function AdminPage() {
       )}
 
       {activeTab === 'users' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-50">
-            <h3 className="font-black text-gray-900">{MOCK_USERS.length} {t('admin', 'users')}</h3>
+        <div className="glass border border-white/8 rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/8">
+            <h3 className="font-black text-white">{MOCK_USERS.length} {t('admin', 'users')}</h3>
           </div>
           <DataTable
             columns={['Name', 'Email', 'Role', 'Joined']}
             rows={MOCK_USERS.map((u) => [
               <div key="u" className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-white text-xs font-bold">{u.name.charAt(0)}</div>
-                <span className="font-semibold">{u.name}</span>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-[#050816] text-xs font-bold"
+                  style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>
+                  {u.name.charAt(0)}
+                </div>
+                <span className="font-semibold text-white">{u.name}</span>
               </div>,
               u.email,
-              <span key="r" className={`text-xs font-bold px-2.5 py-1 rounded-full ${u.role === 'admin' ? 'bg-[#1B4332] text-white' : 'bg-gray-100 text-gray-600'}`}>{u.role}</span>,
+              <span key="r" className={`text-xs font-bold px-2.5 py-1 rounded-full ${u.role === 'admin' ? 'text-[#050816]' : 'bg-white/10 text-white/60 border border-white/10'}`}
+                style={u.role === 'admin' ? { background: 'linear-gradient(135deg, #00E38C, #00C2FF)' } : {}}>
+                {u.role}
+              </span>,
               new Date(u.createdAt).toLocaleDateString(),
             ])}
           />
@@ -352,41 +366,43 @@ export default function AdminPage() {
       {activeTab === 'messages' && (
         <div className="space-y-3">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="font-black text-gray-900">
+            <h3 className="font-black text-white">
               {supportMessages.length} messages
-              {unreadSupportCount > 0 && <span className="text-sm font-semibold text-red-500 ml-2">({unreadSupportCount} unread)</span>}
+              {unreadSupportCount > 0 && <span className="text-sm font-semibold text-red-400 ml-2">({unreadSupportCount} unread)</span>}
             </h3>
-            <Link href="/admin/messages" className="px-4 py-2 bg-[#1B4332] text-white text-sm font-bold rounded-xl hover:bg-[#0f2d21] transition-colors">Full view →</Link>
+            <Link href="/admin/messages" className="px-4 py-2 text-[#050816] text-sm font-bold rounded-xl transition-all hover:shadow-[0_0_20px_rgba(0,227,140,0.3)]"
+              style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>Full view →</Link>
           </div>
           {supportMessages.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-3xl border border-gray-100">
+            <div className="text-center py-16 glass-card rounded-3xl border border-white/8">
               <div className="text-5xl mb-4">💬</div>
-              <p className="text-gray-400">No support messages yet.</p>
+              <p className="text-white/30">No support messages yet.</p>
             </div>
           ) : (
             supportMessages
               .slice()
               .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
               .map((msg) => (
-                <div key={msg.id} className={`bg-white rounded-2xl border shadow-sm p-5 ${!msg.read ? 'border-[#52B788]/40 bg-[#1B4332]/[0.02]' : 'border-gray-100'}`}>
+                <div key={msg.id} className={`glass-card rounded-2xl border p-5 ${!msg.read ? 'border-[#00E38C]/30' : 'border-white/8'}`}>
                   <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-[#050816] text-sm font-bold flex-shrink-0"
+                      style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>
                       {msg.fromUserName.charAt(0)}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-gray-900 text-sm">{msg.fromUserName}</span>
-                          {!msg.read && <span className="bg-[#52B788] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">NEW</span>}
+                          <span className="font-bold text-white text-sm">{msg.fromUserName}</span>
+                          {!msg.read && <span className="bg-[#00E38C] text-[#050816] text-[10px] font-bold px-1.5 py-0.5 rounded-full">NEW</span>}
                         </div>
-                        <span className="text-xs text-gray-400">{new Date(msg.timestamp).toLocaleDateString()}</span>
+                        <span className="text-xs text-white/20">{new Date(msg.timestamp).toLocaleDateString()}</span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-0.5">{msg.fromUserEmail}</p>
-                      <p className="text-sm text-gray-700 mt-2">{msg.content}</p>
+                      <p className="text-xs text-white/30 mt-0.5">{msg.fromUserEmail}</p>
+                      <p className="text-sm text-white/70 mt-2">{msg.content}</p>
                     </div>
                   </div>
                   {!msg.read && (
-                    <button onClick={() => markSupportMessageRead(msg.id)} className="mt-3 px-3 py-1.5 text-xs font-semibold text-[#1B4332] border border-[#1B4332]/30 rounded-xl hover:bg-[#1B4332]/5 transition-colors">
+                    <button onClick={() => markSupportMessageRead(msg.id)} className="mt-3 px-3 py-1.5 text-xs font-semibold text-[#00E38C] border border-[#00E38C]/30 rounded-xl hover:bg-[#00E38C]/10 transition-colors">
                       {t('messages', 'markRead')}
                     </button>
                   )}

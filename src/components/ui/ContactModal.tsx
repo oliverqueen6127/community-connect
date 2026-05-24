@@ -52,16 +52,23 @@ export default function ContactModal({
 
   if (!user) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-        <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center" onClick={(e) => e.stopPropagation()}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+        <div
+          className="glass border border-white/15 rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center"
+          onClick={(e) => e.stopPropagation()}
+          style={{ animation: 'slideUp 0.3s ease' }}
+        >
           <div className="text-5xl mb-4">🔐</div>
-          <h3 className="text-xl font-black text-gray-900 mb-2">{t('auth', 'loginRequired')}</h3>
-          <p className="text-gray-500 text-sm mb-6">{t('auth', 'loginToContact')}</p>
+          <h3 className="text-xl font-black text-white mb-2">{t('auth', 'loginRequired')}</h3>
+          <p className="text-white/40 text-sm mb-6">{t('auth', 'loginToContact')}</p>
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">{t('common', 'cancel')}</button>
+            <button onClick={onClose} className="flex-1 py-2.5 border border-white/15 rounded-xl text-sm font-medium text-white/50 hover:text-white transition-colors">
+              {t('common', 'cancel')}
+            </button>
             <button
               onClick={() => { onClose(); router.push('/auth/login'); }}
-              className="flex-1 py-2.5 bg-[#1B4332] text-white rounded-xl text-sm font-bold hover:bg-[#0f2d21] transition-colors"
+              className="flex-1 py-2.5 text-[#050816] rounded-xl text-sm font-bold transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
+              style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}
             >
               {t('auth', 'signIn')}
             </button>
@@ -77,39 +84,47 @@ export default function ContactModal({
     : t('messages', 'contactLister');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()} style={{ animation: 'slideUp 0.3s ease' }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="glass border border-white/15 rounded-3xl p-6 max-w-md w-full shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+        style={{ animation: 'slideUp 0.3s ease' }}
+      >
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-black text-gray-900">{contactLabel}</h3>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-400">
+          <h3 className="text-lg font-black text-white">{contactLabel}</h3>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-white/5 transition-colors text-white/30 hover:text-white">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="bg-[#1B4332]/5 border border-[#52B788]/30 rounded-2xl px-4 py-3 mb-4">
-          <p className="text-xs text-gray-500 font-medium">{t('messages', 'regarding')}</p>
-          <p className="text-sm font-bold text-[#1B4332] mt-0.5 line-clamp-1">{listingTitle}</p>
+        <div className="glass border border-[#00E38C]/20 rounded-2xl px-4 py-3 mb-4">
+          <p className="text-xs text-white/30 font-medium">{t('messages', 'regarding')}</p>
+          <p className="text-sm font-bold text-[#00E38C] mt-0.5 line-clamp-1">{listingTitle}</p>
         </div>
 
         <div className="mb-4">
-          <label className="block text-sm font-semibold text-gray-700 mb-2">{t('messages', 'yourMessage')}</label>
+          <label className="block text-sm font-semibold text-white/60 mb-2">{t('messages', 'yourMessage')}</label>
           <textarea
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder={t('messages', 'writeMessage')}
             rows={4}
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#52B788] focus:ring-2 focus:ring-[#52B788]/20 text-gray-800 text-sm resize-none bg-gray-50 focus:bg-white transition-all"
+            autoFocus
+            className="glass-input w-full px-4 py-3 rounded-xl text-sm resize-none"
           />
         </div>
 
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">{t('common', 'cancel')}</button>
+          <button onClick={onClose} className="flex-1 py-3 border border-white/15 rounded-xl text-sm font-medium text-white/50 hover:text-white transition-colors">
+            {t('common', 'cancel')}
+          </button>
           <button
             onClick={handleSend}
             disabled={!message.trim() || sending}
-            className="flex-1 py-3 bg-gradient-to-r from-[#1B4332] to-[#52B788] text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+            className="flex-1 py-3 text-[#050816] rounded-xl text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 hover:shadow-[0_0_20px_rgba(0,227,140,0.3)]"
+            style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}
           >
             {sending ? (
               <><svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> {t('common', 'loading')}</>

@@ -22,7 +22,6 @@ export default function SupportChat() {
     if (open && user) setTimeout(() => textareaRef.current?.focus(), 100);
   }, [open, user]);
 
-  // Don't show on admin pages
   if (pathname.startsWith('/admin')) return null;
 
   const handleSend = async () => {
@@ -48,15 +47,19 @@ export default function SupportChat() {
       {/* Floating button */}
       <button
         onClick={() => setOpen(!open)}
-        className="fixed bottom-24 right-4 md:bottom-6 md:right-6 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-[#1B4332] to-[#52B788] shadow-lg hover:shadow-xl flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
+        className="fixed bottom-24 right-4 lg:bottom-6 lg:right-6 z-40 w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
+        style={{
+          background: 'linear-gradient(135deg, #00E38C, #00C2FF)',
+          boxShadow: open ? '0 0 30px rgba(0,227,140,0.5)' : '0 0 20px rgba(0,227,140,0.3)',
+        }}
         aria-label={t('support', 'title')}
       >
         {open ? (
-          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          <svg className="w-6 h-6 text-[#050816]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
           </svg>
         ) : (
-          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-6 h-6 text-[#050816]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
           </svg>
         )}
@@ -65,20 +68,25 @@ export default function SupportChat() {
       {/* Chat panel */}
       {open && (
         <div
-          className="fixed bottom-40 right-4 md:bottom-24 md:right-6 z-40 w-80 bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden"
-          style={{ animation: 'slideUp 0.25s ease' }}
+          className="fixed bottom-40 right-4 lg:bottom-24 lg:right-6 z-40 w-80 glass border border-white/15 rounded-3xl overflow-hidden shadow-2xl"
+          style={{ animation: 'slideUp 0.25s ease', boxShadow: '0 0 40px rgba(0,0,0,0.5), 0 0 20px rgba(0,227,140,0.1)' }}
         >
           {/* Header */}
-          <div className="bg-gradient-to-r from-[#1B4332] to-[#2d6a4f] px-5 py-4">
+          <div className="px-5 py-4 border-b border-white/8"
+            style={{ background: 'linear-gradient(135deg, rgba(0,227,140,0.1), rgba(0,194,255,0.08))' }}>
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <div className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)', boxShadow: '0 0 12px rgba(0,227,140,0.4)' }}>
+                <svg className="w-5 h-5 text-[#050816]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
                 </svg>
               </div>
               <div>
                 <p className="text-white font-bold text-sm">{t('support', 'title')}</p>
-                <p className="text-white/70 text-xs">Community Connect</p>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#00E38C] animate-pulse" />
+                  <p className="text-white/40 text-xs">Community Connect</p>
+                </div>
               </div>
             </div>
           </div>
@@ -88,24 +96,25 @@ export default function SupportChat() {
             {sent ? (
               <div className="text-center py-6">
                 <div className="text-4xl mb-3">✅</div>
-                <p className="text-sm font-bold text-gray-900">{t('support', 'messageSent')}</p>
+                <p className="text-sm font-bold text-[#00E38C]">{t('support', 'messageSent')}</p>
               </div>
             ) : !user ? (
               <div className="text-center py-4">
                 <div className="text-4xl mb-3">🔐</div>
-                <p className="text-sm font-semibold text-gray-700 mb-1">{t('support', 'loginRequired')}</p>
+                <p className="text-sm font-semibold text-white/70 mb-1">{t('support', 'loginRequired')}</p>
                 <button
                   onClick={() => { setOpen(false); router.push('/auth/login'); }}
-                  className="mt-3 px-4 py-2 bg-[#1B4332] text-white text-sm font-bold rounded-xl hover:bg-[#0f2d21] transition-colors"
+                  className="mt-3 px-4 py-2 text-[#050816] text-sm font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
+                  style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}
                 >
                   {t('support', 'loginBtn')}
                 </button>
               </div>
             ) : (
               <>
-                <div className="bg-[#1B4332]/5 rounded-2xl p-3 mb-4">
-                  <p className="text-sm font-bold text-gray-900">{t('support', 'greeting')}</p>
-                  <p className="text-xs text-gray-500 mt-1">{t('support', 'subGreeting')}</p>
+                <div className="glass border border-white/8 rounded-2xl p-3 mb-4">
+                  <p className="text-sm font-bold text-white">{t('support', 'greeting')}</p>
+                  <p className="text-xs text-white/40 mt-1">{t('support', 'subGreeting')}</p>
                 </div>
                 <textarea
                   ref={textareaRef}
@@ -113,13 +122,14 @@ export default function SupportChat() {
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder={t('support', 'placeholder')}
                   rows={3}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:border-[#52B788] focus:ring-2 focus:ring-[#52B788]/20 text-sm text-gray-800 resize-none bg-gray-50 focus:bg-white transition-all"
+                  className="glass-input w-full px-3 py-2.5 rounded-xl text-sm resize-none"
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 />
                 <button
                   onClick={handleSend}
                   disabled={!message.trim() || sending}
-                  className="mt-3 w-full py-2.5 bg-gradient-to-r from-[#1B4332] to-[#52B788] text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="mt-3 w-full py-2.5 text-[#050816] rounded-xl text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 hover:shadow-[0_0_20px_rgba(0,227,140,0.3)]"
+                  style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}
                 >
                   {sending ? (
                     <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">

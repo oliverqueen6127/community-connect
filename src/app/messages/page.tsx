@@ -41,19 +41,20 @@ function MessageThread({
     : { id: last.fromUserId, name: last.fromUserName, email: last.fromUserEmail };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="glass-card rounded-2xl border border-white/8 hover:border-[#00E38C]/30 overflow-hidden">
       {/* Thread header */}
-      <div className="px-5 py-4 border-b border-gray-50 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1B4332] to-[#52B788] flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+      <div className="px-5 py-4 border-b border-white/8 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-[#050816] text-sm font-bold flex-shrink-0"
+          style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>
           {other.name.charAt(0)}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-gray-900 text-sm">{other.name}</p>
+          <p className="font-bold text-white text-sm">{other.name}</p>
           {last.listingTitle && (
-            <p className="text-xs text-gray-400 truncate">{t('messages', 'regarding')}: {last.listingTitle}</p>
+            <p className="text-xs text-white/30 truncate">{t('messages', 'regarding')}: {last.listingTitle}</p>
           )}
         </div>
-        <span className="text-xs text-gray-400">{formatDate(last.timestamp)}</span>
+        <span className="text-xs text-white/30">{formatDate(last.timestamp)}</span>
       </div>
 
       {/* Messages */}
@@ -64,11 +65,12 @@ function MessageThread({
             <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm ${
                 isMe
-                  ? 'bg-[#1B4332] text-white rounded-br-sm'
-                  : 'bg-gray-100 text-gray-800 rounded-bl-sm'
-              }`}>
+                  ? 'rounded-br-sm text-white'
+                  : 'rounded-bl-sm text-white/70 bg-white/5 border border-white/8'
+              }`}
+              style={isMe ? { background: 'linear-gradient(135deg, rgba(0,227,140,0.2), rgba(0,194,255,0.15))', border: '1px solid rgba(0,227,140,0.25)' } : {}}>
                 {msg.content}
-                <div className={`text-[10px] mt-1 ${isMe ? 'text-white/60' : 'text-gray-400'}`}>
+                <div className={`text-[10px] mt-1 ${isMe ? 'text-white/40' : 'text-white/20'}`}>
                   {formatDate(msg.timestamp)}
                 </div>
               </div>
@@ -78,10 +80,10 @@ function MessageThread({
       </div>
 
       {/* Reply */}
-      <div className="px-5 py-3 border-t border-gray-50">
+      <div className="px-5 py-3 border-t border-white/8">
         <button
           onClick={() => onReply(other.id, other.name, other.email, last.listingId, last.listingTitle, last.listingType)}
-          className="w-full py-2 text-sm font-semibold text-[#1B4332] border border-[#1B4332] rounded-xl hover:bg-[#1B4332] hover:text-white transition-colors flex items-center justify-center gap-2"
+          className="w-full py-2 text-sm font-semibold border border-white/15 rounded-xl text-white/50 hover:text-[#00E38C] hover:border-[#00E38C]/40 transition-all flex items-center justify-center gap-2"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -113,17 +115,13 @@ export default function MessagesPage() {
   if (isLoading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#1B4332] to-[#52B788] animate-pulse" />
+        <div className="w-10 h-10 rounded-2xl animate-pulse" style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }} />
       </div>
     );
   }
 
-  // Group messages by "conversation" (listing + other user)
-  const relevant = userMessages.filter(
-    (m) => m.fromUserId === user.id || m.toUserId === user.id
-  );
+  const relevant = userMessages.filter((m) => m.fromUserId === user.id || m.toUserId === user.id);
 
-  // Group by conversation key: sort the two user IDs + listingId
   const threads = new Map<string, UserMessage[]>();
   relevant.forEach((msg) => {
     const participants = [msg.fromUserId, msg.toUserId].sort().join('-');
@@ -160,19 +158,17 @@ export default function MessagesPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 pt-16">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-black text-gray-900">{t('messages', 'title')}</h1>
-          <p className="text-gray-500 mt-1">{t('messages', 'inbox')}</p>
-        </div>
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 pt-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-black text-white">{t('messages', 'title')}</h1>
+        <p className="text-white/40 mt-1">{t('messages', 'inbox')}</p>
       </div>
 
       {threadEntries.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-gray-100 shadow-sm">
-          <div className="text-6xl mb-4">💬</div>
-          <h3 className="text-xl font-bold text-gray-700 mb-2">{t('messages', 'noMessages')}</h3>
-          <p className="text-gray-400 max-w-xs mx-auto">{t('messages', 'noMessagesDesc')}</p>
+        <div className="text-center py-20 glass-card rounded-3xl border border-white/8">
+          <div className="text-6xl mb-4" style={{ animation: 'float 3s ease-in-out infinite' }}>💬</div>
+          <h3 className="text-xl font-bold text-white mb-2">{t('messages', 'noMessages')}</h3>
+          <p className="text-white/30 max-w-xs mx-auto">{t('messages', 'noMessagesDesc')}</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -192,19 +188,19 @@ export default function MessagesPage() {
 
       {/* Reply Modal */}
       {replyTo && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setReplyTo(null)}>
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()} style={{ animation: 'slideUp 0.3s ease' }}>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setReplyTo(null)}>
+          <div className="glass border border-white/15 rounded-3xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()} style={{ animation: 'slideUp 0.3s ease' }}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-black text-gray-900">{t('messages', 'reply')} to {replyTo.toName}</h3>
-              <button onClick={() => setReplyTo(null)} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400">
+              <h3 className="font-black text-white">{t('messages', 'reply')} to {replyTo.toName}</h3>
+              <button onClick={() => setReplyTo(null)} className="p-2 rounded-xl hover:bg-white/5 text-white/30 hover:text-white transition-colors">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
             {replyTo.listingTitle && (
-              <div className="bg-[#1B4332]/5 rounded-xl px-4 py-2 mb-4">
-                <p className="text-xs text-gray-500">{t('messages', 'regarding')}: <span className="font-semibold text-[#1B4332]">{replyTo.listingTitle}</span></p>
+              <div className="glass border border-[#00E38C]/20 rounded-xl px-4 py-2 mb-4">
+                <p className="text-xs text-white/30">{t('messages', 'regarding')}: <span className="font-semibold text-[#00E38C]">{replyTo.listingTitle}</span></p>
               </div>
             )}
             <textarea
@@ -213,14 +209,15 @@ export default function MessagesPage() {
               placeholder={t('messages', 'replyPlaceholder')}
               rows={4}
               autoFocus
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:border-[#52B788] focus:ring-2 focus:ring-[#52B788]/20 text-sm text-gray-800 resize-none bg-gray-50 focus:bg-white transition-all mb-4"
+              className="glass-input w-full px-4 py-3 rounded-xl text-sm resize-none mb-4"
             />
             <div className="flex gap-3">
-              <button onClick={() => setReplyTo(null)} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">{t('common', 'cancel')}</button>
+              <button onClick={() => setReplyTo(null)} className="flex-1 py-3 border border-white/15 rounded-xl text-sm font-medium text-white/50 hover:text-white transition-colors">{t('common', 'cancel')}</button>
               <button
                 onClick={handleReply}
                 disabled={!replyText.trim() || sending}
-                className="flex-1 py-3 bg-gradient-to-r from-[#1B4332] to-[#52B788] text-white rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 py-3 text-[#050816] rounded-xl text-sm font-bold disabled:opacity-50 flex items-center justify-center gap-2 transition-all hover:shadow-[0_0_20px_rgba(0,227,140,0.3)]"
+                style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}
               >
                 {sending ? (
                   <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
