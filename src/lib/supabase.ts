@@ -1,77 +1,41 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Null when env vars are absent — mock/dev mode stays fully functional
+export const supabase: SupabaseClient | null =
+  url && key ? createClient(url, key) : null;
 
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[];
+export const isSupabaseEnabled = !!(url && key);
 
-export interface Database {
-  public: {
-    Tables: {
-      profiles: {
-        Row: {
-          id: string;
-          email: string;
-          name: string;
-          avatar_url: string | null;
-          role: 'user' | 'admin';
-          saved_businesses: string[];
-          saved_events: string[];
-          saved_housing: string[];
-          saved_jobs: string[];
-          created_at: string;
-        };
-        Insert: {
-          id: string;
-          email: string;
-          name: string;
-          avatar_url?: string | null;
-          role?: 'user' | 'admin';
-          saved_businesses?: string[];
-          saved_events?: string[];
-          saved_housing?: string[];
-          saved_jobs?: string[];
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          email?: string;
-          name?: string;
-          avatar_url?: string | null;
-          role?: 'user' | 'admin';
-          saved_businesses?: string[];
-          saved_events?: string[];
-          saved_housing?: string[];
-          saved_jobs?: string[];
-        };
-      };
-      ai_searches: {
-        Row: {
-          id: string;
-          user_id: string | null;
-          query: string;
-          response: string;
-          results_count: number;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id?: string | null;
-          query: string;
-          response: string;
-          results_count: number;
-          created_at?: string;
-        };
-        Update: never;
-      };
-    };
-  };
+// ── DB row types ──────────────────────────────────────────────────────────────
+
+export interface DbProfile {
+  id: string;
+  full_name: string;
+  email: string;
+  role: 'user' | 'admin';
+  avatar_url: string | null;
+  created_at: string;
+}
+
+export interface DbFavorite {
+  id: string;
+  user_id: string;
+  item_id: string;
+  item_type: 'business' | 'event' | 'housing' | 'job';
+  created_at: string;
+}
+
+export interface DbSupportMessage {
+  id: string;
+  user_id: string | null;
+  from_name: string;
+  from_email: string;
+  subject: string;
+  message: string;
+  status: 'unread' | 'read' | 'resolved';
+  page: string;
+  created_at: string;
 }

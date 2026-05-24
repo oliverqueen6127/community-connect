@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { UserListing, ListingType, Business, Event, Housing, Job } from './types';
+import { supabase, isSupabaseEnabled } from './supabase';
+import { useApp } from './context';
 
 const LISTINGS_KEY = 'cc-user-listings';
 
@@ -17,6 +19,225 @@ interface ListingsContextType {
 
 const ListingsContext = createContext<ListingsContextType | undefined>(undefined);
 
+type DbTable = 'businesses' | 'events' | 'housing' | 'jobs';
+
+function getTable(type: ListingType): DbTable {
+  return type === 'business' ? 'businesses'
+    : type === 'event' ? 'events'
+    : type === 'housing' ? 'housing'
+    : 'jobs';
+}
+
+function genId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `ul-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// ── Row → TypeScript types ─────────────────────────────────────────────────────
+
+function rowToData(row: Record<string, unknown>, type: ListingType): Business | Event | Housing | Job {
+  const id = row.id as string;
+
+  if (type === 'business') {
+    return {
+      id, type: 'business',
+      name: (row.name as string) || '',
+      category: (row.category as Business['category']) || 'other',
+      description: (row.description as string) || '',
+      address: (row.address as string) || '',
+      city: (row.city as string) || '',
+      state: (row.state as string) || '',
+      zip: (row.zip as string) || '',
+      phone: (row.phone as string) || '',
+      website: (row.website as string) || undefined,
+      rating: (row.rating as number) || 0,
+      reviewCount: (row.review_count as number) || 0,
+      isOpen: Boolean(row.is_open),
+      hours: (row.hours as string) || '',
+      image: (row.image_url as string) || '',
+      tags: (row.tags as string[]) || [],
+      priceLevel: ((row.price_level as number) || 2) as 1 | 2 | 3 | 4,
+    };
+  }
+
+  if (type === 'event') {
+    return {
+      id, type: 'event',
+      title: (row.title as string) || '',
+      description: (row.description as string) || '',
+      category: (row.category as string) || 'community',
+      date: (row.date as string) || '',
+      time: (row.time as string) || '',
+      endTime: (row.end_time as string) || undefined,
+      location: (row.location as string) || '',
+      city: (row.city as string) || '',
+      state: (row.state as string) || '',
+      organizer: (row.organizer as string) || '',
+      attendees: (row.attendees as number) || 0,
+      maxAttendees: (row.max_attendees as number) || undefined,
+      price: (row.price as number) || 0,
+      isFree: Boolean(row.is_free),
+      image: (row.image_url as string) || '',
+      tags: (row.tags as string[]) || [],
+      rsvpLink: (row.rsvp_link as string) || undefined,
+    };
+  }
+
+  if (type === 'housing') {
+    return {
+      id, type: 'housing',
+      title: (row.title as string) || '',
+      description: (row.description as string) || '',
+      address: (row.address as string) || '',
+      city: (row.city as string) || '',
+      state: (row.state as string) || '',
+      zip: (row.zip as string) || '',
+      price: (row.price as number) || 0,
+      bedrooms: (row.bedrooms as number) || 1,
+      bathrooms: (row.bathrooms as number) || 1,
+      sqft: (row.sqft as number) || 0,
+      propertyType: (row.property_type as Housing['propertyType']) || 'apartment',
+      listingType: (row.listing_type as Housing['listingType']) || 'rent',
+      images: (row.images as string[]) || [],
+      amenities: (row.amenities as string[]) || [],
+      contactName: (row.contact_name as string) || '',
+      contactPhone: (row.contact_phone as string) || '',
+      contactEmail: (row.contact_email as string) || '',
+      postedDate: new Date((row.created_at as string) || Date.now()).toISOString().split('T')[0],
+      available: Boolean(row.available),
+      petFriendly: Boolean(row.pet_friendly),
+      parking: Boolean(row.parking),
+    };
+  }
+
+  return {
+    id, type: 'job',
+    title: (row.title as string) || '',
+    company: (row.company as string) || '',
+    description: (row.description as string) || '',
+    category: (row.category as string) || 'general',
+    city: (row.city as string) || '',
+    state: (row.state as string) || '',
+    salary: (row.salary as string) || '',
+    jobType: (row.job_type as Job['jobType']) || 'full-time',
+    remote: Boolean(row.remote),
+    experience: (row.experience as string) || '',
+    requirements: (row.requirements as string[]) || [],
+    benefits: (row.benefits as string[]) || [],
+    contactEmail: (row.contact_email as string) || '',
+    postedDate: new Date((row.created_at as string) || Date.now()).toISOString().split('T')[0],
+    deadline: (row.deadline as string) || undefined,
+    logo: (row.logo_url as string) || undefined,
+  };
+}
+
+function rowToUserListing(row: Record<string, unknown>, type: ListingType): UserListing {
+  return {
+    id: row.id as string,
+    publishedBy: (row.owner_id as string) || '',
+    publishedByName: '',
+    publishedByEmail: '',
+    type,
+    data: rowToData(row, type),
+    createdAt: (row.created_at as string) || new Date().toISOString(),
+    status: (row.status as string) === 'active' ? 'active' : 'pending',
+  };
+}
+
+// ── TypeScript types → DB row ─────────────────────────────────────────────────
+
+function listingToDbRow(id: string, listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>): Record<string, unknown> {
+  const { data, type, publishedBy } = listing;
+  const base = { id, owner_id: publishedBy, city: data.city, state: data.state, status: 'active' };
+
+  if (type === 'business') {
+    const b = data as Business;
+    return {
+      ...base,
+      name: b.name,
+      category: b.category,
+      description: b.description || '',
+      address: b.address || '',
+      zip: b.zip || '',
+      phone: b.phone || '',
+      website: b.website || '',
+      image_url: b.image || '',
+      rating: b.rating || 0,
+      review_count: b.reviewCount || 0,
+      is_open: b.isOpen,
+      hours: b.hours || '',
+      tags: b.tags || [],
+      price_level: b.priceLevel || 2,
+    };
+  }
+
+  if (type === 'event') {
+    const e = data as Event;
+    return {
+      ...base,
+      title: e.title,
+      description: e.description || '',
+      category: e.category || 'community',
+      date: e.date || '',
+      time: e.time || '',
+      end_time: e.endTime || '',
+      location: e.location || '',
+      organizer: e.organizer || '',
+      attendees: e.attendees || 0,
+      price: e.price || 0,
+      is_free: e.isFree,
+      image_url: e.image || '',
+      tags: e.tags || [],
+      rsvp_link: e.rsvpLink || '',
+    };
+  }
+
+  if (type === 'housing') {
+    const h = data as Housing;
+    return {
+      ...base,
+      title: h.title,
+      description: h.description || '',
+      address: h.address || '',
+      zip: h.zip || '',
+      price: h.price || 0,
+      bedrooms: h.bedrooms || 1,
+      bathrooms: h.bathrooms || 1,
+      sqft: h.sqft || 0,
+      property_type: h.propertyType || 'apartment',
+      listing_type: h.listingType || 'rent',
+      images: h.images || [],
+      amenities: h.amenities || [],
+      contact_name: h.contactName || '',
+      contact_phone: h.contactPhone || '',
+      contact_email: h.contactEmail || '',
+      pet_friendly: h.petFriendly || false,
+      parking: h.parking || false,
+      available: h.available !== false,
+    };
+  }
+
+  const j = data as Job;
+  return {
+    ...base,
+    title: j.title,
+    company: j.company || '',
+    description: j.description || '',
+    category: j.category || 'general',
+    salary: j.salary || '',
+    job_type: j.jobType || 'full-time',
+    remote: j.remote || false,
+    experience: j.experience || '',
+    requirements: j.requirements || [],
+    benefits: j.benefits || [],
+    contact_email: j.contactEmail || '',
+  };
+}
+
+// ── Storage helpers ───────────────────────────────────────────────────────────
+
 function load(): UserListing[] {
   try {
     const raw = localStorage.getItem(LISTINGS_KEY);
@@ -28,15 +249,54 @@ function save(data: UserListing[]) {
   try { localStorage.setItem(LISTINGS_KEY, JSON.stringify(data)); } catch { /* ignore */ }
 }
 
+// ── Provider ──────────────────────────────────────────────────────────────────
+
 export function ListingsProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useApp();
   const [userListings, setUserListings] = useState<UserListing[]>([]);
 
-  useEffect(() => { setUserListings(load()); }, []);
+  useEffect(() => {
+    const init = async () => {
+      // Always start with localStorage for instant display
+      setUserListings(load());
+
+      const isRealUser = user && !user.id.startsWith('mock-');
+      if (!isSupabaseEnabled || !supabase || !isRealUser) return;
+
+      try {
+        const tables: DbTable[] = ['businesses', 'events', 'housing', 'jobs'];
+        const types: ListingType[] = ['business', 'event', 'housing', 'job'];
+        const isAdmin = user.role === 'admin';
+
+        const results = await Promise.all(
+          tables.map(async (table, i) => {
+            // Admins see all listings; regular users see only their own
+            const query = isAdmin
+              ? supabase!.from(table).select('*').order('created_at', { ascending: false })
+              : supabase!.from(table).select('*').eq('owner_id', user.id).order('created_at', { ascending: false });
+
+            const { data } = await query;
+            return (data || []).map((row) => rowToUserListing(row as Record<string, unknown>, types[i]));
+          })
+        );
+
+        const all = results.flat();
+        if (all.length > 0) {
+          setUserListings(all);
+          save(all);
+        }
+      } catch { /* keep localStorage state on error */ }
+    };
+
+    init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const addListing = useCallback((listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>) => {
+    const id = genId();
     const newListing: UserListing = {
       ...listing,
-      id: `ul-${Math.random().toString(36).substr(2, 9)}`,
+      id,
       createdAt: new Date().toISOString(),
       status: 'active',
     };
@@ -45,12 +305,26 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
       save(updated);
       return updated;
     });
+
+    // Sync to Supabase for real users
+    if (isSupabaseEnabled && supabase && !listing.publishedBy.startsWith('mock-')) {
+      const table = getTable(listing.type);
+      supabase.from(table).insert(listingToDbRow(id, listing)).then(({ error }) => {
+        if (error) console.error('[Listings] Supabase insert failed:', error.message);
+      });
+    }
   }, []);
 
   const deleteListing = useCallback((id: string) => {
     setUserListings((prev) => {
+      const listing = prev.find((l) => l.id === id);
       const updated = prev.filter((l) => l.id !== id);
       save(updated);
+
+      if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
+        supabase.from(getTable(listing.type)).delete().eq('id', id).then(() => {});
+      }
+
       return updated;
     });
   }, []);
@@ -61,7 +335,14 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
       save(updated);
       return updated;
     });
-  }, []);
+
+    if (isSupabaseEnabled && supabase) {
+      const listing = userListings.find((l) => l.id === id);
+      if (listing && !listing.publishedBy.startsWith('mock-')) {
+        supabase.from(getTable(listing.type)).update({ status: 'active' }).eq('id', id).then(() => {});
+      }
+    }
+  }, [userListings]);
 
   const rejectListing = useCallback((id: string) => {
     setUserListings((prev) => {
@@ -69,7 +350,14 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
       save(updated);
       return updated;
     });
-  }, []);
+
+    if (isSupabaseEnabled && supabase) {
+      const listing = userListings.find((l) => l.id === id);
+      if (listing && !listing.publishedBy.startsWith('mock-')) {
+        supabase.from(getTable(listing.type)).update({ status: 'pending' }).eq('id', id).then(() => {});
+      }
+    }
+  }, [userListings]);
 
   const getListingsByUser = useCallback((userId: string) =>
     userListings.filter((l) => l.publishedBy === userId), [userListings]);
@@ -92,9 +380,10 @@ export function useListings() {
   return ctx;
 }
 
-// Helper to build typed listing data from form
+// ── Helper for add-listing page ───────────────────────────────────────────────
+
 export function buildListingData(type: ListingType, form: Record<string, string>, userId: string, userName: string): Business | Event | Housing | Job {
-  const id = `ul-${Math.random().toString(36).substr(2, 9)}`;
+  const id = genId();
   const city = form.city || 'New York';
   const state = form.state || 'NY';
 
@@ -163,7 +452,6 @@ export function buildListingData(type: ListingType, form: Record<string, string>
     } as Housing;
   }
 
-  // job
   return {
     id, type: 'job',
     title: form.title || 'Untitled Position',

@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { UserMessage, SupportMessage } from './types';
+import { supabase, isSupabaseEnabled, DbSupportMessage } from './supabase';
+import { useApp } from './context';
 
 const MESSAGES_KEY = 'cc-user-messages';
 const SUPPORT_KEY = 'cc-support-messages';
@@ -33,14 +35,48 @@ function saveToStorage<T>(key: string, data: T[]) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* ignore */ }
 }
 
+function dbToSupportMessage(row: DbSupportMessage): SupportMessage {
+  return {
+    id: row.id,
+    fromUserId: row.user_id ?? undefined,
+    fromUserName: row.from_name,
+    fromUserEmail: row.from_email,
+    subject: row.subject || undefined,
+    content: row.message,
+    timestamp: row.created_at,
+    page: row.page || undefined,
+    read: row.status !== 'unread',
+  };
+}
+
 export function MessagesProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useApp();
   const [userMessages, setUserMessages] = useState<UserMessage[]>([]);
   const [supportMessages, setSupportMessages] = useState<SupportMessage[]>([]);
 
+  // Reload when user changes (login / logout)
   useEffect(() => {
-    setUserMessages(loadFromStorage<UserMessage>(MESSAGES_KEY));
-    setSupportMessages(loadFromStorage<SupportMessage>(SUPPORT_KEY));
-  }, []);
+    const init = async () => {
+      setUserMessages(loadFromStorage<UserMessage>(MESSAGES_KEY));
+
+      const isRealUser = user && !user.id.startsWith('mock-');
+      if (isSupabaseEnabled && supabase && isRealUser) {
+        const { data, error } = await supabase
+          .from('support_messages')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!error && data) {
+          setSupportMessages((data as DbSupportMessage[]).map(dbToSupportMessage));
+          return;
+        }
+      }
+
+      setSupportMessages(loadFromStorage<SupportMessage>(SUPPORT_KEY));
+    };
+    init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const sendUserMessage = useCallback((msg: Omit<UserMessage, 'id' | 'timestamp' | 'read'>) => {
     const newMsg: UserMessage = {
@@ -82,6 +118,21 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       saveToStorage(SUPPORT_KEY, updated);
       return updated;
     });
+
+    // Async Supabase persist
+    if (isSupabaseEnabled && supabase) {
+      supabase.from('support_messages').insert({
+        user_id: msg.fromUserId || null,
+        from_name: msg.fromUserName,
+        from_email: msg.fromUserEmail,
+        subject: msg.subject || '',
+        message: msg.content,
+        page: msg.page || '',
+        status: 'unread',
+      }).then(({ error }) => {
+        if (error) console.error('[Support] Supabase insert failed:', error.message);
+      });
+    }
   }, []);
 
   const markUserMessageRead = useCallback((id: string) => {
@@ -98,6 +149,10 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       saveToStorage(SUPPORT_KEY, updated);
       return updated;
     });
+
+    if (isSupabaseEnabled && supabase) {
+      supabase.from('support_messages').update({ status: 'read' }).eq('id', id).then(() => {});
+    }
   }, []);
 
   const deleteSupportMessage = useCallback((id: string) => {
@@ -106,6 +161,10 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
       saveToStorage(SUPPORT_KEY, updated);
       return updated;
     });
+
+    if (isSupabaseEnabled && supabase) {
+      supabase.from('support_messages').delete().eq('id', id).then(() => {});
+    }
   }, []);
 
   const deleteUserMessage = useCallback((id: string) => {
