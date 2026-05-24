@@ -1,13 +1,26 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Null when env vars are absent — mock/dev mode stays fully functional
-export const supabase: SupabaseClient | null =
-  url && key ? createClient(url, key) : null;
+function initClient(): SupabaseClient | null {
+  if (!url || !anonKey) return null;
+  try {
+    return createClient(url, anonKey);
+  } catch (err) {
+    if (process.env.NODE_ENV === 'development') {
+      console.error('[Supabase] createClient failed:', err);
+    }
+    return null;
+  }
+}
 
-export const isSupabaseEnabled = !!(url && key);
+export const supabase: SupabaseClient | null = initClient();
+export const isSupabaseEnabled = supabase !== null;
+
+if (process.env.NODE_ENV === 'development') {
+  console.log('[Supabase] configured:', isSupabaseEnabled, '| url:', url ?? '(missing)', '| key prefix:', anonKey ? anonKey.slice(0, 20) + '...' : '(missing)');
+}
 
 // ── DB row types ──────────────────────────────────────────────────────────────
 

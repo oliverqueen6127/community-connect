@@ -22,7 +22,7 @@ export default function SupportChat() {
     if (open && user) setTimeout(() => textareaRef.current?.focus(), 100);
   }, [open, user]);
 
-  if (pathname.startsWith('/admin')) return null;
+  if (pathname.startsWith('/admin') || pathname.startsWith('/auth')) return null;
 
   const handleSend = async () => {
     if (!message.trim()) return;

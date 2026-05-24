@@ -6,37 +6,6 @@ import { supabase, isSupabaseEnabled, DbProfile } from './supabase';
 
 const STORAGE_KEY = 'community-connect-user';
 
-// ── Mock accounts always available (dev / demo) ───────────────────────────────
-const MOCK_ACCOUNTS: Record<string, { password: string; user: User }> = {
-  admin: {
-    password: 'admin',
-    user: {
-      id: 'mock-admin-1',
-      name: 'Administrator',
-      email: 'admin@communityconnect.local',
-      role: 'admin',
-      savedBusinesses: [],
-      savedEvents: [],
-      savedHousing: [],
-      savedJobs: [],
-      createdAt: new Date().toISOString(),
-    },
-  },
-  user: {
-    password: 'user',
-    user: {
-      id: 'mock-user-2',
-      name: 'Demo User',
-      email: 'user@communityconnect.local',
-      role: 'user',
-      savedBusinesses: [],
-      savedEvents: [],
-      savedHousing: [],
-      savedJobs: [],
-      createdAt: new Date().toISOString(),
-    },
-  },
-};
 
 const SAVED_KEY_MAP = {
   businesses: 'savedBusinesses',
@@ -135,26 +104,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (username: string, password: string): Promise<void> => {
     const key = username.toLowerCase().trim();
 
-    // Always allow demo accounts (works even with Supabase enabled)
-    const mock = MOCK_ACCOUNTS[key];
-    if (mock && mock.password === password) {
-      let userData = { ...mock.user };
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const prev = JSON.parse(raw) as User;
-          if (prev.id === userData.id) userData = { ...userData, ...prev };
-        }
-      } catch { /* ignore */ }
-      setUser(userData);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
-      return;
-    }
+    // 1. Server-side admin credentials (ADMIN_USERNAME / ADMIN_PASSWORD in .env.local)
+    //    Credentials never reach the client — the API route does the comparison.
+    try {
+      const res = await fetch('/api/admin-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: key, password }),
+      });
 
-    // Supabase email auth
-    if (isSupabaseEnabled && supabase) {
+      if (res.ok) {
+        const { user: adminUser } = await res.json() as { user: User };
+        // Restore any saved favorites/state from a previous session
+        let userData = { ...adminUser };
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const prev = JSON.parse(raw) as User;
+            if (prev.id === userData.id) userData = { ...userData, ...prev };
+          }
+        } catch { /* ignore */ }
+        setUser(userData);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+        return;
+      }
+      // 401 = wrong credentials; 500 = not configured — fall through
+    } catch { /* network error — fall through */ }
+
+    // 2. Supabase email auth for real users (username must be an email address)
+    if (key.includes('@') && isSupabaseEnabled && supabase) {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: username,
+        email: key,
         password,
       });
       if (error) throw new Error(error.message);
@@ -185,7 +165,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    throw new Error('Identifiant ou mot de passe incorrect.');
+    throw new Error('Invalid email or password.');
   }, []);
 
   // ── Logout ────────────────────────────────────────────────────────────────
