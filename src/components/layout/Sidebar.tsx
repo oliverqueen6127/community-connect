@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/lib/context';
 import { useLanguage } from '@/lib/language-context';
+import LanguageDropdown from '@/components/ui/LanguageDropdown';
 import { US_CITIES } from '@/lib/data';
 
 const NAV_ITEMS = [
@@ -135,32 +136,6 @@ function CitySelector({ selectedCity, onSelect }: { selectedCity: string; onSele
   );
 }
 
-function LanguageToggle() {
-  const { lang, setLang } = useLanguage();
-  const langs: { code: 'en' | 'fr' | 'ar'; label: string }[] = [
-    { code: 'en', label: 'EN' },
-    { code: 'fr', label: 'FR' },
-    { code: 'ar', label: 'AR' },
-  ];
-
-  return (
-    <div className="flex items-center gap-1 p-1 rounded-xl bg-white/5 border border-white/8">
-      {langs.map((l) => (
-        <button
-          key={l.code}
-          onClick={() => setLang(l.code)}
-          className={`flex-1 text-xs py-1 rounded-lg font-medium transition-all ${
-            lang === l.code
-              ? 'bg-[#00E38C] text-[#050816] font-bold'
-              : 'text-white/40 hover:text-white/70'
-          }`}
-        >
-          {l.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -226,7 +201,7 @@ export default function Sidebar() {
       {/* Bottom section */}
       <div className="px-3 pb-4 space-y-3 border-t border-white/8 pt-3">
         {/* Language */}
-        <LanguageToggle />
+        <LanguageDropdown />
 
         {/* User */}
         {user ? (

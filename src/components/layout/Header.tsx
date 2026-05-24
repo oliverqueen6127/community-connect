@@ -3,9 +3,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useApp } from '@/lib/context';
-import { useLanguage } from '@/lib/language-context';
 import { US_CITIES } from '@/lib/data';
 import HamburgerMenu from './HamburgerMenu';
+import LanguageDropdown from '@/components/ui/LanguageDropdown';
 
 function CityDropdown({
   selectedCity,
@@ -74,7 +74,6 @@ function CityDropdown({
 
 export default function Header() {
   const { selectedCity, setSelectedCity, setSelectedState } = useApp();
-  const { lang, setLang } = useLanguage();
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -126,20 +125,8 @@ export default function Header() {
             <span className="font-medium truncate">{selectedCity}</span>
           </button>
 
-          {/* Language mini-toggle */}
-          <div className="flex gap-0.5 flex-shrink-0">
-            {(['en', 'fr', 'ar'] as const).map((l) => (
-              <button
-                key={l}
-                onClick={() => setLang(l)}
-                className={`text-[10px] px-1.5 py-0.5 rounded font-bold transition-all ${
-                  lang === l ? 'bg-[#00E38C] text-[#050816]' : 'text-white/30 hover:text-white/60'
-                }`}
-              >
-                {l.toUpperCase()}
-              </button>
-            ))}
-          </div>
+          {/* Language dropdown */}
+          <LanguageDropdown />
         </div>
       </header>
 

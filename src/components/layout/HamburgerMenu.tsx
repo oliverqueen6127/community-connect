@@ -45,7 +45,7 @@ const NAV_ITEMS = [
 export default function HamburgerMenu({ isOpen, onClose }: HamburgerMenuProps) {
   const pathname = usePathname();
   const { user, logout } = useApp();
-  const { lang, setLang, t } = useLanguage();
+  const { t } = useLanguage();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -153,21 +153,6 @@ export default function HamburgerMenu({ isOpen, onClose }: HamburgerMenuProps) {
 
         {/* Footer */}
         <div className="px-3 pb-6 pt-3 border-t border-white/8 space-y-3">
-          {/* Language selector */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-white/5 border border-white/8">
-            {(['en', 'fr', 'ar'] as const).map((l) => (
-              <button
-                key={l}
-                onClick={() => setLang(l)}
-                className={`flex-1 text-xs py-1.5 rounded-lg font-bold transition-all ${
-                  lang === l ? 'bg-[#00E38C] text-[#050816]' : 'text-white/40 hover:text-white/70'
-                }`}
-              >
-                {l.toUpperCase()}
-              </button>
-            ))}
-          </div>
-
           {/* User section */}
           {user ? (
             <div className="space-y-1">
