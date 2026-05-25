@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/context';
@@ -8,6 +8,7 @@ import { useMessages } from '@/lib/messages-context';
 import { useListings } from '@/lib/listings-context';
 import { useLanguage } from '@/lib/language-context';
 import { BUSINESSES, EVENTS, HOUSING, JOBS } from '@/lib/data';
+import { Business, Event, Housing, Job } from '@/lib/types';
 
 type AdminTab = 'overview' | 'businesses' | 'events' | 'housing' | 'jobs' | 'users' | 'messages' | 'listings';
 
@@ -57,10 +58,12 @@ function DataTable({ columns, rows }: { columns: string[]; rows: (string | React
   );
 }
 
+const typeEmoji = (type: string) => type === 'business' ? '🏪' : type === 'event' ? '🎉' : type === 'housing' ? '🏠' : '💼';
+
 export default function AdminPage() {
   const { user, isLoading, logout } = useApp();
   const { supportMessages, userMessages, unreadSupportCount, markSupportMessageRead } = useMessages();
-  const { userListings, deleteListing } = useListings();
+  const { userListings, deleteListing, isLoading: listingsLoading } = useListings();
   const { t } = useLanguage();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -72,6 +75,45 @@ export default function AdminPage() {
     }
   }, [user, isLoading, router]);
 
+  // ── Merge static seed data with user-submitted Supabase listings ───────────
+  // Admin sees EVERYTHING: mock seed data + all user-submitted rows from Supabase.
+  const supabaseBusinesses = useMemo(
+    () => userListings.filter((l) => l.type === 'business').map((l) => l.data as Business),
+    [userListings],
+  );
+  const supabaseEvents = useMemo(
+    () => userListings.filter((l) => l.type === 'event').map((l) => l.data as Event),
+    [userListings],
+  );
+  const supabaseHousing = useMemo(
+    () => userListings.filter((l) => l.type === 'housing').map((l) => l.data as Housing),
+    [userListings],
+  );
+  const supabaseJobs = useMemo(
+    () => userListings.filter((l) => l.type === 'job').map((l) => l.data as Job),
+    [userListings],
+  );
+
+  const allBusinesses = useMemo(() => {
+    const ids = new Set(BUSINESSES.map((b) => b.id));
+    return [...BUSINESSES, ...supabaseBusinesses.filter((b) => !ids.has(b.id))];
+  }, [supabaseBusinesses]);
+
+  const allEvents = useMemo(() => {
+    const ids = new Set(EVENTS.map((e) => e.id));
+    return [...EVENTS, ...supabaseEvents.filter((e) => !ids.has(e.id))];
+  }, [supabaseEvents]);
+
+  const allHousing = useMemo(() => {
+    const ids = new Set(HOUSING.map((h) => h.id));
+    return [...HOUSING, ...supabaseHousing.filter((h) => !ids.has(h.id))];
+  }, [supabaseHousing]);
+
+  const allJobs = useMemo(() => {
+    const ids = new Set(JOBS.map((j) => j.id));
+    return [...JOBS, ...supabaseJobs.filter((j) => !ids.has(j.id))];
+  }, [supabaseJobs]);
+
   if (isLoading || !user || user.role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -82,27 +124,26 @@ export default function AdminPage() {
 
   const TABS: { key: AdminTab; label: string; emoji: string; badge?: number }[] = [
     { key: 'overview', label: t('admin', 'overview'), emoji: '📊' },
-    { key: 'businesses', label: t('admin', 'businesses'), emoji: '🏪' },
-    { key: 'events', label: t('admin', 'events'), emoji: '🎉' },
-    { key: 'housing', label: t('admin', 'housing'), emoji: '🏠' },
-    { key: 'jobs', label: t('admin', 'jobs'), emoji: '💼' },
+    { key: 'businesses', label: t('admin', 'businesses'), emoji: '🏪', badge: supabaseBusinesses.length },
+    { key: 'events', label: t('admin', 'events'), emoji: '🎉', badge: supabaseEvents.length },
+    { key: 'housing', label: t('admin', 'housing'), emoji: '🏠', badge: supabaseHousing.length },
+    { key: 'jobs', label: t('admin', 'jobs'), emoji: '💼', badge: supabaseJobs.length },
     { key: 'listings', label: t('admin', 'userListings'), emoji: '📋', badge: userListings.length },
     { key: 'users', label: t('admin', 'users'), emoji: '👥' },
     { key: 'messages', label: t('admin', 'messages'), emoji: '💬', badge: unreadSupportCount },
   ];
 
   const recentActivity = [
-    ...BUSINESSES.slice(0, 3).map((b) => ({ type: 'business', name: b.name, city: b.city, date: '2024-12-01' })),
-    ...EVENTS.slice(0, 2).map((e) => ({ type: 'event', name: e.title, city: e.city, date: e.date })),
-    ...userListings.slice(0, 3).map((l) => ({
+    ...userListings.slice(0, 8).map((l) => ({
       type: l.type,
       name: ('name' in l.data ? l.data.name as string : '') || ('title' in l.data ? l.data.title as string : '') || 'Untitled',
       city: l.data.city,
       date: l.createdAt,
+      source: 'supabase',
     })),
-  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 8);
-
-  const typeEmoji = (type: string) => type === 'business' ? '🏪' : type === 'event' ? '🎉' : type === 'housing' ? '🏠' : '💼';
+    ...BUSINESSES.slice(0, 3).map((b) => ({ type: 'business', name: b.name, city: b.city, date: '2024-12-01', source: 'seed' })),
+    ...EVENTS.slice(0, 2).map((e) => ({ type: 'event', name: e.title, city: e.city, date: e.date, source: 'seed' })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -112,6 +153,9 @@ export default function AdminPage() {
         <div>
           <h1 className="text-2xl font-black text-white">{t('admin', 'welcomeBack')}, {user.name} 👋</h1>
           <p className="text-white/40 text-sm mt-0.5">{t('admin', 'title')}</p>
+          {listingsLoading && (
+            <p className="text-[#00E38C] text-xs mt-1 animate-pulse">Loading listings from Supabase…</p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <Link href="/add-listing" className="px-4 py-2 text-sm font-semibold text-[#00E38C] border border-[#00E38C]/30 rounded-xl hover:bg-[#00E38C]/10 transition-all flex items-center gap-1.5">
@@ -152,16 +196,16 @@ export default function AdminPage() {
         ))}
       </div>
 
-      {/* Overview */}
+      {/* ── Overview ── */}
       {activeTab === 'overview' && (
         <div className="space-y-8">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <StatCard label={t('admin', 'totalUsers')} value={MOCK_USERS.length} emoji="👥" />
-            <StatCard label={t('admin', 'totalBusinesses')} value={BUSINESSES.length} emoji="🏪" />
-            <StatCard label={t('admin', 'totalEvents')} value={EVENTS.length} emoji="🎉" />
-            <StatCard label={t('admin', 'totalHousing')} value={HOUSING.length} emoji="🏠" />
-            <StatCard label={t('admin', 'totalJobs')} value={JOBS.length} emoji="💼" />
-            <StatCard label={t('admin', 'userListings')} value={userListings.length} emoji="📋" />
+            <StatCard label={t('admin', 'totalBusinesses')} value={allBusinesses.length} emoji="🏪" />
+            <StatCard label={t('admin', 'totalEvents')} value={allEvents.length} emoji="🎉" />
+            <StatCard label={t('admin', 'totalHousing')} value={allHousing.length} emoji="🏠" />
+            <StatCard label={t('admin', 'totalJobs')} value={allJobs.length} emoji="💼" />
+            <StatCard label="Supabase Listings" value={userListings.length} emoji="📋" />
             <StatCard label={t('admin', 'totalMessages')} value={supportMessages.length} emoji="💬" href="/admin/messages" badge={unreadSupportCount} />
             <StatCard label="User Messages" value={userMessages.length} emoji="✉️" />
           </div>
@@ -180,9 +224,14 @@ export default function AdminPage() {
                         <p className="text-sm font-semibold text-white truncate">{item.name}</p>
                         <p className="text-xs text-white/30">{item.city}</p>
                       </div>
-                      <span className="text-xs text-white/20 flex-shrink-0">
-                        {new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {item.source === 'supabase' && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20">DB</span>
+                        )}
+                        <span className="text-xs text-white/20">
+                          {new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -214,95 +263,156 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── Businesses (seed + Supabase) ── */}
       {activeTab === 'businesses' && (
         <div className="glass border border-white/8 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
-            <h3 className="font-black text-white">{BUSINESSES.length} {t('admin', 'businesses')}</h3>
+            <div>
+              <h3 className="font-black text-white">{allBusinesses.length} {t('admin', 'businesses')}</h3>
+              <p className="text-xs text-white/30 mt-0.5">
+                {BUSINESSES.length} seed · <span className="text-[#00E38C]">{supabaseBusinesses.length} from Supabase</span>
+              </p>
+            </div>
             <Link href="/add-listing" className="px-3 py-1.5 text-[#050816] text-xs font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
               style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>+ Add</Link>
           </div>
-          <DataTable
-            columns={['Name', 'Category', 'City', 'Rating', 'Status']}
-            rows={BUSINESSES.map((b) => [
-              <span key="n" className="font-semibold text-white">{b.name}</span>,
-              b.category,
-              `${b.city}, ${b.state}`,
-              <span key="r">⭐ {b.rating}</span>,
-              <span key="s" className={`text-xs font-bold px-2 py-0.5 rounded-full ${b.isOpen ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{b.isOpen ? 'Open' : 'Closed'}</span>,
-            ])}
-          />
+          {listingsLoading ? (
+            <div className="text-center py-10 text-white/30 text-sm animate-pulse">Loading from Supabase…</div>
+          ) : (
+            <DataTable
+              columns={['Name', 'Category', 'City', 'Rating', 'Status', 'Source']}
+              rows={allBusinesses.map((b) => {
+                const isDb = !BUSINESSES.find((x) => x.id === b.id);
+                return [
+                  <span key="n" className="font-semibold text-white">{b.name}</span>,
+                  b.category,
+                  `${b.city}, ${b.state}`,
+                  <span key="r">⭐ {b.rating}</span>,
+                  <span key="s" className={`text-xs font-bold px-2 py-0.5 rounded-full ${b.isOpen ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{b.isOpen ? 'Open' : 'Closed'}</span>,
+                  <span key="src" className={`text-xs font-bold px-2 py-0.5 rounded-full ${isDb ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-white/5 text-white/30 border border-white/10'}`}>{isDb ? 'DB' : 'Seed'}</span>,
+                ];
+              })}
+            />
+          )}
         </div>
       )}
 
+      {/* ── Events (seed + Supabase) ── */}
       {activeTab === 'events' && (
         <div className="glass border border-white/8 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
-            <h3 className="font-black text-white">{EVENTS.length} {t('admin', 'events')}</h3>
+            <div>
+              <h3 className="font-black text-white">{allEvents.length} {t('admin', 'events')}</h3>
+              <p className="text-xs text-white/30 mt-0.5">
+                {EVENTS.length} seed · <span className="text-[#00E38C]">{supabaseEvents.length} from Supabase</span>
+              </p>
+            </div>
             <Link href="/add-listing" className="px-3 py-1.5 text-[#050816] text-xs font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
               style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>+ Add</Link>
           </div>
-          <DataTable
-            columns={['Title', 'Organizer', 'Date', 'City', 'Price']}
-            rows={EVENTS.map((e) => [
-              <span key="t" className="font-semibold text-white">{e.title}</span>,
-              e.organizer,
-              new Date(e.date).toLocaleDateString(),
-              `${e.city}, ${e.state}`,
-              e.isFree ? <span key="f" className="text-xs font-bold text-[#00E38C]">Free</span> : `$${e.price}`,
-            ])}
-          />
+          {listingsLoading ? (
+            <div className="text-center py-10 text-white/30 text-sm animate-pulse">Loading from Supabase…</div>
+          ) : (
+            <DataTable
+              columns={['Title', 'Organizer', 'Date', 'City', 'Price', 'Source']}
+              rows={allEvents.map((e) => {
+                const isDb = !EVENTS.find((x) => x.id === e.id);
+                return [
+                  <span key="t" className="font-semibold text-white">{e.title}</span>,
+                  e.organizer,
+                  new Date(e.date).toLocaleDateString(),
+                  `${e.city}, ${e.state}`,
+                  e.isFree ? <span key="f" className="text-xs font-bold text-[#00E38C]">Free</span> : `$${e.price}`,
+                  <span key="src" className={`text-xs font-bold px-2 py-0.5 rounded-full ${isDb ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-white/5 text-white/30 border border-white/10'}`}>{isDb ? 'DB' : 'Seed'}</span>,
+                ];
+              })}
+            />
+          )}
         </div>
       )}
 
+      {/* ── Housing (seed + Supabase) ── */}
       {activeTab === 'housing' && (
         <div className="glass border border-white/8 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
-            <h3 className="font-black text-white">{HOUSING.length} {t('admin', 'housing')}</h3>
+            <div>
+              <h3 className="font-black text-white">{allHousing.length} {t('admin', 'housing')}</h3>
+              <p className="text-xs text-white/30 mt-0.5">
+                {HOUSING.length} seed · <span className="text-[#00E38C]">{supabaseHousing.length} from Supabase</span>
+              </p>
+            </div>
             <Link href="/add-listing" className="px-3 py-1.5 text-[#050816] text-xs font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
               style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>+ Add</Link>
           </div>
-          <DataTable
-            columns={['Title', 'Type', 'Price', 'City', 'Available']}
-            rows={HOUSING.map((h) => [
-              <span key="t" className="font-semibold text-white">{h.title}</span>,
-              `${h.propertyType} (${h.listingType})`,
-              `$${h.price.toLocaleString()}${h.listingType === 'rent' ? '/mo' : ''}`,
-              `${h.city}, ${h.state}`,
-              <span key="a" className={`text-xs font-bold px-2 py-0.5 rounded-full ${h.available ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{h.available ? 'Available' : 'Taken'}</span>,
-            ])}
-          />
+          {listingsLoading ? (
+            <div className="text-center py-10 text-white/30 text-sm animate-pulse">Loading from Supabase…</div>
+          ) : (
+            <DataTable
+              columns={['Title', 'Type', 'Price', 'City', 'Available', 'Source']}
+              rows={allHousing.map((h) => {
+                const isDb = !HOUSING.find((x) => x.id === h.id);
+                return [
+                  <span key="t" className="font-semibold text-white">{h.title}</span>,
+                  `${h.propertyType} (${h.listingType})`,
+                  `$${h.price.toLocaleString()}${h.listingType === 'rent' ? '/mo' : ''}`,
+                  `${h.city}, ${h.state}`,
+                  <span key="a" className={`text-xs font-bold px-2 py-0.5 rounded-full ${h.available ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{h.available ? 'Available' : 'Taken'}</span>,
+                  <span key="src" className={`text-xs font-bold px-2 py-0.5 rounded-full ${isDb ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-white/5 text-white/30 border border-white/10'}`}>{isDb ? 'DB' : 'Seed'}</span>,
+                ];
+              })}
+            />
+          )}
         </div>
       )}
 
+      {/* ── Jobs (seed + Supabase) ── */}
       {activeTab === 'jobs' && (
         <div className="glass border border-white/8 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
-            <h3 className="font-black text-white">{JOBS.length} {t('admin', 'jobs')}</h3>
+            <div>
+              <h3 className="font-black text-white">{allJobs.length} {t('admin', 'jobs')}</h3>
+              <p className="text-xs text-white/30 mt-0.5">
+                {JOBS.length} seed · <span className="text-[#00E38C]">{supabaseJobs.length} from Supabase</span>
+              </p>
+            </div>
             <Link href="/add-listing" className="px-3 py-1.5 text-[#050816] text-xs font-bold rounded-xl transition-all hover:shadow-[0_0_15px_rgba(0,227,140,0.3)]"
               style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>+ Add</Link>
           </div>
-          <DataTable
-            columns={['Title', 'Company', 'Type', 'Salary', 'City']}
-            rows={JOBS.map((j) => [
-              <span key="t" className="font-semibold text-white">{j.title}</span>,
-              j.company,
-              j.jobType,
-              j.salary,
-              `${j.city}, ${j.state}`,
-            ])}
-          />
+          {listingsLoading ? (
+            <div className="text-center py-10 text-white/30 text-sm animate-pulse">Loading from Supabase…</div>
+          ) : (
+            <DataTable
+              columns={['Title', 'Company', 'Type', 'Salary', 'City', 'Source']}
+              rows={allJobs.map((j) => {
+                const isDb = !JOBS.find((x) => x.id === j.id);
+                return [
+                  <span key="t" className="font-semibold text-white">{j.title}</span>,
+                  j.company,
+                  j.jobType,
+                  j.salary,
+                  `${j.city}, ${j.state}`,
+                  <span key="src" className={`text-xs font-bold px-2 py-0.5 rounded-full ${isDb ? 'bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20' : 'bg-white/5 text-white/30 border border-white/10'}`}>{isDb ? 'DB' : 'Seed'}</span>,
+                ];
+              })}
+            />
+          )}
         </div>
       )}
 
+      {/* ── User Listings (all from Supabase) ── */}
       {activeTab === 'listings' && (
         <div className="glass border border-white/8 rounded-2xl">
-          <div className="px-5 py-4 border-b border-white/8">
-            <h3 className="font-black text-white">{t('admin', 'userListings')} ({userListings.length})</h3>
+          <div className="px-5 py-4 border-b border-white/8 flex items-center justify-between">
+            <div>
+              <h3 className="font-black text-white">{t('admin', 'userListings')} ({userListings.length})</h3>
+              <p className="text-xs text-white/30 mt-0.5">All user-submitted listings from Supabase</p>
+            </div>
+            {listingsLoading && <span className="text-[#00E38C] text-xs animate-pulse">Syncing…</span>}
           </div>
           {userListings.length === 0 ? (
             <div className="text-center py-16">
               <div className="text-5xl mb-4">📋</div>
-              <p className="text-white/30">No user-submitted listings yet.</p>
+              <p className="text-white/30">{listingsLoading ? 'Loading from Supabase…' : 'No user-submitted listings yet.'}</p>
             </div>
           ) : (
             <div className="divide-y divide-white/5">
@@ -316,7 +426,7 @@ export default function AdminPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-white text-sm truncate">{title}</p>
-                      <p className="text-xs text-white/40">{listing.publishedByName} · {listing.data.city}, {listing.data.state}</p>
+                      <p className="text-xs text-white/40">{listing.publishedByName || listing.publishedBy} · {listing.data.city}, {listing.data.state}</p>
                       <p className="text-xs text-white/20">{new Date(listing.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -337,6 +447,7 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── Users ── */}
       {activeTab === 'users' && (
         <div className="glass border border-white/8 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-white/8">
@@ -363,6 +474,7 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── Messages ── */}
       {activeTab === 'messages' && (
         <div className="space-y-3">
           <div className="flex items-center justify-between mb-2">

@@ -1,6 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, {
+  createContext, useContext, useState, useCallback, useEffect, useRef,
+} from 'react';
 import { UserListing, ListingType, Business, Event, Housing, Job } from './types';
 import { supabase, isSupabaseEnabled } from './supabase';
 import { useApp } from './context';
@@ -237,25 +239,36 @@ function listingToDbRow(id: string, listing: Omit<UserListing, 'id' | 'createdAt
   };
 }
 
-// ── Storage helpers ───────────────────────────────────────────────────────────
+// ── localStorage helpers (cache only — never source of truth) ─────────────────
 
-function load(): UserListing[] {
+function loadCache(): UserListing[] {
+  if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem(LISTINGS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 
-function save(data: UserListing[]) {
+function saveCache(data: UserListing[]) {
+  if (typeof window === 'undefined') return;
   try { localStorage.setItem(LISTINGS_KEY, JSON.stringify(data)); } catch { /* ignore */ }
 }
 
-// ── Supabase fetch helper ─────────────────────────────────────────────────────
+// ── Supabase query ─────────────────────────────────────────────────────────────
+// Fetches ALL active listings (visible to public) + owner's pending ones.
+// Admins get everything with no status filter.
+// The userRef param avoids stale closure — always reads current user.
 
-async function fetchAllFromSupabase(userId?: string, isAdmin?: boolean): Promise<UserListing[]> {
-  if (!isSupabaseEnabled || !supabase) return [];
+async function querySupabase(
+  userId: string | undefined,
+  isAdmin: boolean,
+): Promise<UserListing[]> {
+  if (!isSupabaseEnabled || !supabase) {
+    console.log('[Listings] Supabase not configured — returning empty');
+    return [];
+  }
 
-  console.log('[Listings] Supabase configured:', isSupabaseEnabled, '| fetching for user:', userId ?? 'anonymous', '| isAdmin:', isAdmin);
+  console.log('[Listings] querySupabase | userId:', userId ?? 'anon', '| isAdmin:', isAdmin);
 
   const tables: DbTable[] = ['businesses', 'events', 'housing', 'jobs'];
   const types: ListingType[] = ['business', 'event', 'housing', 'job'];
@@ -264,52 +277,60 @@ async function fetchAllFromSupabase(userId?: string, isAdmin?: boolean): Promise
     tables.map(async (table, i) => {
       try {
         if (isAdmin) {
-          // Admin sees all listings regardless of status
           const { data, error } = await supabase!
             .from(table)
             .select('*')
             .order('created_at', { ascending: false });
-          if (error) { console.error(`[Listings] fetch ${table} error:`, error.message); return []; }
-          console.log(`[Listings] ${table}: fetched ${data?.length ?? 0} rows (admin)`);
-          return (data || []).map((row) => rowToUserListing(row as Record<string, unknown>, types[i]));
+          if (error) {
+            console.error(`[Listings] admin fetch ${table} error:`, error.code, error.message);
+            return [];
+          }
+          console.log(`[Listings] ${table} (admin): ${data?.length ?? 0} rows`);
+          return (data || []).map((r) => rowToUserListing(r as Record<string, unknown>, types[i]));
         }
 
-        // Regular or anonymous: fetch all active listings
-        const { data: activeData, error: activeError } = await supabase!
+        // Non-admin: fetch all active rows (public read policy required in Supabase RLS)
+        const { data: active, error: activeErr } = await supabase!
           .from(table)
           .select('*')
           .eq('status', 'active')
           .order('created_at', { ascending: false });
-        if (activeError) { console.error(`[Listings] fetch active ${table} error:`, activeError.message); return []; }
 
-        let rows = activeData || [];
+        if (activeErr) {
+          console.error(`[Listings] fetch active ${table}:`, activeErr.code, activeErr.message);
+          return [];
+        }
 
-        // Also fetch owner's pending listings so they see their own pending items
+        let rows = active || [];
+        console.log(`[Listings] ${table} active rows: ${rows.length}`);
+
+        // Append owner's pending rows so they see their own unapproved listings
         if (userId) {
-          const { data: pendingData } = await supabase!
+          const { data: pending, error: pendingErr } = await supabase!
             .from(table)
             .select('*')
             .eq('owner_id', userId)
             .eq('status', 'pending')
             .order('created_at', { ascending: false });
-          if (pendingData && pendingData.length > 0) {
-            // Merge, deduplicating by id
-            const ids = new Set(rows.map((r) => r.id));
-            rows = [...rows, ...pendingData.filter((r) => !ids.has(r.id))];
+
+          if (!pendingErr && pending?.length) {
+            const seen = new Set(rows.map((r) => r.id as string));
+            const extra = pending.filter((r) => !seen.has(r.id as string));
+            rows = [...rows, ...extra];
+            console.log(`[Listings] ${table} added ${extra.length} pending (owner)`);
           }
         }
 
-        console.log(`[Listings] ${table}: fetched ${rows.length} rows`);
-        return rows.map((row) => rowToUserListing(row as Record<string, unknown>, types[i]));
+        return rows.map((r) => rowToUserListing(r as Record<string, unknown>, types[i]));
       } catch (err) {
-        console.error(`[Listings] unexpected error fetching ${table}:`, err);
+        console.error(`[Listings] unexpected error in ${table}:`, err);
         return [];
       }
-    })
+    }),
   );
 
   const all = results.flat();
-  console.log('[Listings] total fetched from Supabase:', all.length);
+  console.log('[Listings] total fetched:', all.length);
   return all;
 }
 
@@ -320,163 +341,177 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
   const [userListings, setUserListings] = useState<UserListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const refresh = useCallback(async () => {
-    const isRealUser = user && !user.id.startsWith('mock-');
-    const isAdmin = user?.role === 'admin';
-    const all = await fetchAllFromSupabase(isRealUser ? user.id : undefined, isAdmin);
+  // Keep a ref to the current user so realtime callbacks are never stale.
+  // The subscription is created once; the ref always gives it the live user.
+  const userRef = useRef(user);
+  useEffect(() => { userRef.current = user; }, [user]);
+
+  // Stable fetch — reads from userRef, never recreated, no stale-closure risk.
+  const doFetch = useCallback(async (): Promise<UserListing[]> => {
+    const u = userRef.current;
+    const isRealUser = u && !u.id.startsWith('mock-');
+    const isAdmin = u?.role === 'admin';
+    const userId = isRealUser ? u.id : undefined;
+    return querySupabase(userId, isAdmin ?? false);
+  }, []); // intentionally empty deps — userRef is the stable bridge
+
+  // Apply fetched rows to state + cache
+  const applyFetch = useCallback(async () => {
+    const all = await doFetch();
     setUserListings(all);
-    save(all);
+    saveCache(all);
     return all;
-  }, [user]);
+  }, [doFetch]);
 
-  // Initial load
+  // ── Initial load on user change ────────────────────────────────────────────
   useEffect(() => {
-    const init = async () => {
-      setIsLoading(true);
+    let cancelled = false;
+    setIsLoading(true);
 
-      // Show cached data immediately while fetching
-      const cached = load();
-      if (cached.length > 0) setUserListings(cached);
+    if (!isSupabaseEnabled || !supabase) {
+      // Supabase not configured — fall back to localStorage cache
+      setUserListings(loadCache());
+      setIsLoading(false);
+      return;
+    }
 
-      if (!isSupabaseEnabled || !supabase) {
-        setIsLoading(false);
-        return;
+    doFetch().then((all) => {
+      if (cancelled) return;
+      if (all.length > 0) {
+        setUserListings(all);
+        saveCache(all);
+      } else {
+        // Supabase returned empty; use cache to avoid blank screen
+        const cached = loadCache();
+        if (cached.length > 0) setUserListings(cached);
       }
+    }).catch((err) => {
+      console.error('[Listings] init fetch error:', err);
+      setUserListings(loadCache()); // last-resort cache
+    }).finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
 
-      try {
-        await refresh();
-      } catch (err) {
-        console.error('[Listings] init fetch failed:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    return () => { cancelled = true; };
+  }, [user?.id, doFetch]);
 
-    init();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
-
-  // Realtime subscription — refetch on any change to listings tables
+  // ── Supabase Realtime — subscribed once, stable ────────────────────────────
   useEffect(() => {
     if (!isSupabaseEnabled || !supabase) return;
 
+    const onEvent = (table: string, eventType: string) => {
+      console.log(`[Listings] Realtime ${eventType} on ${table} — refetching`);
+      applyFetch();
+    };
+
     const channel = supabase
-      .channel('listings-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'businesses' }, () => { refresh(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => { refresh(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'housing' }, () => { refresh(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => { refresh(); })
-      .subscribe((status) => {
-        console.log('[Listings] Realtime subscription status:', status);
+      .channel('listings-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'businesses' },
+        (p) => onEvent('businesses', p.eventType))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' },
+        (p) => onEvent('events', p.eventType))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'housing' },
+        (p) => onEvent('housing', p.eventType))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' },
+        (p) => onEvent('jobs', p.eventType))
+      .subscribe((status, err) => {
+        console.log('[Listings] Realtime status:', status, err ?? '');
       });
 
     return () => { supabase!.removeChannel(channel); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, user?.role]);
+  }, [applyFetch]); // applyFetch is stable (only recreated if doFetch changes, which never happens)
 
+  // ── addListing ─────────────────────────────────────────────────────────────
   const addListing = useCallback(async (listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>) => {
     const id = genId();
-    const newListing: UserListing = {
-      ...listing,
-      id,
-      createdAt: new Date().toISOString(),
-      status: 'active',
+    const optimistic: UserListing = {
+      ...listing, id, createdAt: new Date().toISOString(), status: 'active',
     };
 
     const isRealUser = listing.publishedBy && !listing.publishedBy.startsWith('mock-');
-
-    console.log('[addListing] Supabase enabled:', isSupabaseEnabled, '| user id:', listing.publishedBy, '| isRealUser:', isRealUser);
+    console.log('[addListing] Supabase enabled:', isSupabaseEnabled,
+      '| user id:', listing.publishedBy, '| isRealUser:', isRealUser);
 
     if (isSupabaseEnabled && supabase && isRealUser) {
       const table = getTable(listing.type);
       const row = listingToDbRow(id, listing);
-      console.log('[addListing] inserting into table:', table, '| row id:', id);
+      console.log('[addListing] inserting into table:', table, '| id:', id);
 
       const { data, error } = await supabase.from(table).insert(row).select().single();
 
       if (error) {
-        console.error('[addListing] Supabase insert failed:', error.message, error);
-        // Fall back: add to local state only so user at least sees it on their device
-        setUserListings((prev) => {
-          const updated = [newListing, ...prev];
-          save(updated);
-          return updated;
-        });
+        console.error('[addListing] INSERT failed:', error.code, error.message, error);
+        // Optimistic-only so user at least sees it immediately on their device
+        setUserListings((prev) => { const u = [optimistic, ...prev]; saveCache(u); return u; });
       } else {
-        console.log('[addListing] insert success:', data);
-        // Optimistic update so the new listing is visible immediately
-        setUserListings((prev) => {
-          const updated = [newListing, ...prev];
-          save(updated);
-          return updated;
-        });
-        // Realtime will trigger a full refresh on all other clients automatically.
-        // On this client, also refresh to get the server-assigned created_at etc.
-        try { await refresh(); } catch { /* keep optimistic state */ }
+        console.log('[addListing] INSERT success:', data);
+        // Add optimistically; Realtime will also trigger a full refetch on all clients
+        setUserListings((prev) => { const u = [optimistic, ...prev]; saveCache(u); return u; });
+        // Refetch on this client too so created_at etc. reflects server truth
+        applyFetch().catch(() => {});
       }
     } else {
-      // Mock user or no Supabase: localStorage only
-      setUserListings((prev) => {
-        const updated = [newListing, ...prev];
-        save(updated);
-        return updated;
-      });
+      // Mock user or no Supabase — localStorage only
+      setUserListings((prev) => { const u = [optimistic, ...prev]; saveCache(u); return u; });
     }
-  }, [refresh]);
+  }, [applyFetch]);
 
+  // ── deleteListing ──────────────────────────────────────────────────────────
   const deleteListing = useCallback((id: string) => {
     setUserListings((prev) => {
       const listing = prev.find((l) => l.id === id);
       const updated = prev.filter((l) => l.id !== id);
-      save(updated);
+      saveCache(updated);
 
       if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
-        supabase.from(getTable(listing.type)).delete().eq('id', id).then(() => {});
+        supabase.from(getTable(listing.type)).delete().eq('id', id)
+          .then(({ error }) => {
+            if (error) console.error('[deleteListing] error:', error.message);
+          });
       }
-
       return updated;
     });
   }, []);
 
+  // ── approveListing / rejectListing ─────────────────────────────────────────
   const approveListing = useCallback((id: string) => {
     setUserListings((prev) => {
       const updated = prev.map((l) => l.id === id ? { ...l, status: 'active' as const } : l);
-      save(updated);
+      saveCache(updated);
       return updated;
     });
-
-    if (isSupabaseEnabled && supabase) {
-      const listing = userListings.find((l) => l.id === id);
-      if (listing && !listing.publishedBy.startsWith('mock-')) {
-        supabase.from(getTable(listing.type)).update({ status: 'active' }).eq('id', id).then(() => {});
-      }
+    const listing = userListings.find((l) => l.id === id);
+    if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
+      supabase.from(getTable(listing.type)).update({ status: 'active' }).eq('id', id)
+        .then(({ error }) => { if (error) console.error('[approve] error:', error.message); });
     }
   }, [userListings]);
 
   const rejectListing = useCallback((id: string) => {
     setUserListings((prev) => {
       const updated = prev.map((l) => l.id === id ? { ...l, status: 'pending' as const } : l);
-      save(updated);
+      saveCache(updated);
       return updated;
     });
-
-    if (isSupabaseEnabled && supabase) {
-      const listing = userListings.find((l) => l.id === id);
-      if (listing && !listing.publishedBy.startsWith('mock-')) {
-        supabase.from(getTable(listing.type)).update({ status: 'pending' }).eq('id', id).then(() => {});
-      }
+    const listing = userListings.find((l) => l.id === id);
+    if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
+      supabase.from(getTable(listing.type)).update({ status: 'pending' }).eq('id', id)
+        .then(({ error }) => { if (error) console.error('[reject] error:', error.message); });
     }
   }, [userListings]);
 
-  const getListingsByUser = useCallback((userId: string) =>
-    userListings.filter((l) => l.publishedBy === userId), [userListings]);
+  const getListingsByUser = useCallback(
+    (userId: string) => userListings.filter((l) => l.publishedBy === userId),
+    [userListings],
+  );
 
   const activeListings = userListings.filter((l) => l.status === 'active');
 
   return (
     <ListingsContext.Provider value={{
       userListings, addListing, deleteListing,
-      approveListing, rejectListing, getListingsByUser, activeListings, isLoading,
+      approveListing, rejectListing, getListingsByUser,
+      activeListings, isLoading,
     }}>
       {children}
     </ListingsContext.Provider>
@@ -530,7 +565,7 @@ export function buildListingData(type: ListingType, form: Record<string, string>
       attendees: 0,
       price: parseFloat(form.price || '0'),
       isFree: !form.price || form.price === '0',
-      image: `https://source.unsplash.com/400x300/?event,community`,
+      image: 'https://source.unsplash.com/400x300/?event,community',
       tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
     } as Event;
   }
@@ -549,7 +584,7 @@ export function buildListingData(type: ListingType, form: Record<string, string>
       sqft: parseInt(form.sqft || '500'),
       propertyType: (form.propertyType as Housing['propertyType']) || 'apartment',
       listingType: (form.listingType as Housing['listingType']) || 'rent',
-      images: [`https://source.unsplash.com/400x300/?apartment,home`],
+      images: ['https://source.unsplash.com/400x300/?apartment,home'],
       amenities: [],
       contactName: userName,
       contactPhone: form.phone || '',
