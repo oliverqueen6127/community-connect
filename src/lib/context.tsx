@@ -19,7 +19,7 @@ function profileToUser(profile: DbProfile): User {
     id: profile.id,
     email: profile.email,
     name: profile.full_name || profile.email.split('@')[0],
-    role: profile.role,
+    role: 'user',
     avatar: profile.avatar_url ?? undefined,
     savedBusinesses: [],
     savedEvents: [],
@@ -64,7 +64,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
           const saved = JSON.parse(raw) as User;
-          if (saved?.id && saved?.role) setUser(saved);
+          if (saved?.id && saved?.role) {
+            // Never trust localStorage for admin role — only mock-admin-1 can be admin
+            const safeUser = saved.id === 'mock-admin-1' ? saved : { ...saved, role: 'user' as const };
+            setUser(safeUser);
+          }
         }
       } catch {
         localStorage.removeItem(STORAGE_KEY);

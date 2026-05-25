@@ -153,7 +153,7 @@ function rowToUserListing(row: Record<string, unknown>, type: ListingType): User
 
 function listingToDbRow(id: string, listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>): Record<string, unknown> {
   const { data, type, publishedBy } = listing;
-  const base = { id, owner_id: publishedBy, city: data.city, state: data.state, status: 'active' };
+  const base = { id, owner_id: publishedBy.startsWith('mock-') ? null : publishedBy, city: data.city, state: data.state, status: 'active' };
 
   if (type === 'business') {
     const b = data as Business;
@@ -372,6 +372,7 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     setIsLoading(true);
 
+<<<<<<< HEAD
     if (!isSupabaseEnabled || !supabase) {
       // Supabase not configured — fall back to localStorage cache
       setUserListings(loadCache());
@@ -420,6 +421,79 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
         (p) => onEvent('jobs', p.eventType))
       .subscribe((status, err) => {
         console.log('[Listings] Realtime status:', status, err ?? '');
+=======
+      try {
+        // Admin uses service-key API route to see all listings
+        if (user?.id === 'mock-admin-1') {
+          const res = await fetch('/api/admin-listing');
+          if (res.ok) {
+            const { items } = await res.json() as { items: Array<{ type: ListingType; rows: Record<string, unknown>[] }> };
+            const all = items.flatMap(({ type, rows }) => rows.map((row) => rowToUserListing(row, type)));
+            if (all.length > 0) {
+              setUserListings(all);
+              save(all);
+            }
+          }
+          return;
+        }
+
+        // Regular Supabase users see only their own listings
+        const isRealUser = user && !user.id.startsWith('mock-');
+        if (!isSupabaseEnabled || !supabase || !isRealUser) return;
+
+        const tables: DbTable[] = ['businesses', 'events', 'housing', 'jobs'];
+        const types: ListingType[] = ['business', 'event', 'housing', 'job'];
+
+        const results = await Promise.all(
+          tables.map(async (table, i) => {
+            const { data } = await supabase!
+              .from(table)
+              .select('*')
+              .eq('owner_id', user.id)
+              .order('created_at', { ascending: false });
+            return (data || []).map((row) => rowToUserListing(row as Record<string, unknown>, types[i]));
+          })
+        );
+
+        const all = results.flat();
+        if (all.length > 0) {
+          setUserListings(all);
+          save(all);
+        }
+      } catch { /* keep localStorage state on error */ }
+    };
+
+    init();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const addListing = useCallback((listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>) => {
+    const id = genId();
+    const newListing: UserListing = {
+      ...listing,
+      id,
+      createdAt: new Date().toISOString(),
+      status: 'active',
+    };
+    setUserListings((prev) => {
+      const updated = [newListing, ...prev];
+      save(updated);
+      return updated;
+    });
+
+    // Admin uses service-key API route
+    if (listing.publishedBy === 'mock-admin-1') {
+      fetch('/api/admin-listing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: listing.type, row: listingToDbRow(id, listing) }),
+      }).then((r) => { if (!r.ok) console.error('[Listings] Admin insert failed'); });
+    } else if (isSupabaseEnabled && supabase && !listing.publishedBy.startsWith('mock-')) {
+      // Regular Supabase users
+      const table = getTable(listing.type);
+      supabase.from(table).insert(listingToDbRow(id, listing)).then(({ error }) => {
+        if (error) console.error('[Listings] Supabase insert failed:', error.message);
+>>>>>>> de3d26a (supabase v4)
       });
 
     return () => { supabase!.removeChannel(channel); };
@@ -489,11 +563,22 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
       const updated = prev.filter((l) => l.id !== id);
       saveCache(updated);
 
+<<<<<<< HEAD
       if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
         supabase.from(getTable(listing.type)).delete().eq('id', id)
           .then(({ error }) => {
             if (error) console.error('[deleteListing] error:', error.message);
           });
+=======
+      if (listing?.publishedBy === 'mock-admin-1') {
+        fetch('/api/admin-listing', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: listing.type, id }),
+        }).then((r) => { if (!r.ok) console.error('[Listings] Admin delete failed'); });
+      } else if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
+        supabase.from(getTable(listing.type)).delete().eq('id', id).then(() => {});
+>>>>>>> de3d26a (supabase v4)
       }
       return updated;
     });
