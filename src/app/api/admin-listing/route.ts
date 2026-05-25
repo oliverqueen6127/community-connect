@@ -89,6 +89,37 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+export async function PATCH(req: NextRequest) {
+  const supabase = getServiceClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { error: 'SUPABASE_SERVICE_KEY missing in server environment' },
+      { status: 503 },
+    );
+  }
+
+  const body = await req.json() as { type?: unknown; id?: unknown; status?: unknown };
+  const { type, id, status } = body;
+
+  if (
+    typeof type !== 'string' || !TABLE_MAP[type as ListingType] ||
+    typeof id !== 'string' ||
+    typeof status !== 'string' || !['active', 'pending', 'rejected'].includes(status)
+  ) {
+    return NextResponse.json({ error: 'Bad request — missing type, id, or status.' }, { status: 400 });
+  }
+
+  const table = TABLE_MAP[type as ListingType];
+  const { error } = await supabase.from(table).update({ status }).eq('id', id);
+
+  if (error) {
+    console.error('[admin-listing] PATCH error:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(req: NextRequest) {
   const supabase = getServiceClient();
   if (!supabase) {

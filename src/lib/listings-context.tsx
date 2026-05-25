@@ -151,9 +151,9 @@ function rowToUserListing(row: Record<string, unknown>, type: ListingType): User
 
 // ── TypeScript types → DB row ─────────────────────────────────────────────────
 
-function listingToDbRow(id: string, listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>): Record<string, unknown> {
+function listingToDbRow(id: string, listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>, status: 'active' | 'pending' | 'rejected' = 'active'): Record<string, unknown> {
   const { data, type, publishedBy } = listing;
-  const base = { id, owner_id: publishedBy.startsWith('mock-') ? null : publishedBy, city: data.city, state: data.state, status: 'active' };
+  const base = { id, owner_id: publishedBy.startsWith('mock-') ? null : publishedBy, city: data.city, state: data.state, status };
 
   if (type === 'business') {
     const b = data as Business;
@@ -434,20 +434,23 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
   const addListing = useCallback(async (listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>) => {
     const id = genId();
     const optimistic: UserListing = {
-      ...listing, id, createdAt: new Date().toISOString(), status: 'active',
+      ...listing, id, createdAt: new Date().toISOString(),
+      status: listing.publishedBy === 'mock-admin-1' ? 'active' : 'pending',
     };
 
     const u = userRef.current;
     const isAdminUser = listing.publishedBy === 'mock-admin-1';
     const isRealUser = listing.publishedBy && !listing.publishedBy.startsWith('mock-');
+    // Admin listings go live immediately; regular user listings need approval
+    const status = isAdminUser ? 'active' : 'pending';
 
     console.log('CURRENT USER', u);
     console.log('USER ID', u?.id);
-    console.log('[addListing] isSupabaseEnabled:', isSupabaseEnabled, '| isAdminUser:', isAdminUser, '| isRealUser:', isRealUser);
+    console.log('[addListing] isSupabaseEnabled:', isSupabaseEnabled, '| isAdminUser:', isAdminUser, '| isRealUser:', isRealUser, '| status:', status);
 
     if (isAdminUser) {
       // Admin has no Supabase JWT — use service-key API route for INSERT
-      const row = listingToDbRow(id, listing);
+      const row = listingToDbRow(id, listing, 'active');
       console.log('ADMIN API PAYLOAD', { type: listing.type, row });
 
       // Optimistic update first so the UI reflects immediately
@@ -469,7 +472,7 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
 
     } else if (isSupabaseEnabled && supabase && isRealUser) {
       const table = getTable(listing.type);
-      const payload = listingToDbRow(id, listing);
+      const payload = listingToDbRow(id, listing, 'pending');
 
       console.log('TABLE', table);
       console.log('PAYLOAD', payload);
@@ -530,7 +533,14 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
       return updated;
     });
     const listing = userListings.find((l) => l.id === id);
-    if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
+    if (!listing) return;
+    if (userRef.current?.id === 'mock-admin-1') {
+      fetch('/api/admin-listing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: listing.type, id, status: 'active' }),
+      }).then((r) => { if (!r.ok) console.error('[approveListing] PATCH failed'); });
+    } else if (isSupabaseEnabled && supabase && !listing.publishedBy.startsWith('mock-')) {
       supabase.from(getTable(listing.type)).update({ status: 'active' }).eq('id', id)
         .then(({ error }) => { if (error) console.error('[approve] error:', error.message); });
     }
@@ -538,13 +548,20 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
 
   const rejectListing = useCallback((id: string) => {
     setUserListings((prev) => {
-      const updated = prev.map((l) => l.id === id ? { ...l, status: 'pending' as const } : l);
+      const updated = prev.map((l) => l.id === id ? { ...l, status: 'rejected' as const } : l);
       saveCache(updated);
       return updated;
     });
     const listing = userListings.find((l) => l.id === id);
-    if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
-      supabase.from(getTable(listing.type)).update({ status: 'pending' }).eq('id', id)
+    if (!listing) return;
+    if (userRef.current?.id === 'mock-admin-1') {
+      fetch('/api/admin-listing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: listing.type, id, status: 'rejected' }),
+      }).then((r) => { if (!r.ok) console.error('[rejectListing] PATCH failed'); });
+    } else if (isSupabaseEnabled && supabase && !listing.publishedBy.startsWith('mock-')) {
+      supabase.from(getTable(listing.type)).update({ status: 'rejected' }).eq('id', id)
         .then(({ error }) => { if (error) console.error('[reject] error:', error.message); });
     }
   }, [userListings]);
@@ -575,7 +592,7 @@ export function useListings() {
 
 // ── Helper for add-listing page ───────────────────────────────────────────────
 
-export function buildListingData(type: ListingType, form: Record<string, string>, userId: string, userName: string): Business | Event | Housing | Job {
+export function buildListingData(type: ListingType, form: Record<string, string>, userId: string, userName: string, imageUrl?: string): Business | Event | Housing | Job {
   const id = genId();
   const city = form.city || 'New York';
   const state = form.state || 'NY';
@@ -594,7 +611,7 @@ export function buildListingData(type: ListingType, form: Record<string, string>
       rating: 0, reviewCount: 0,
       isOpen: true,
       hours: form.hours || 'Mon-Sat 9am-6pm',
-      image: `https://source.unsplash.com/400x300/?${encodeURIComponent(form.category || 'business')}`,
+      image: imageUrl || `https://source.unsplash.com/400x300/?${encodeURIComponent(form.category || 'business')}`,
       tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
       priceLevel: 2,
     } as Business;
@@ -614,7 +631,7 @@ export function buildListingData(type: ListingType, form: Record<string, string>
       attendees: 0,
       price: parseFloat(form.price || '0'),
       isFree: !form.price || form.price === '0',
-      image: 'https://source.unsplash.com/400x300/?event,community',
+      image: imageUrl || 'https://source.unsplash.com/400x300/?event,community',
       tags: form.tags ? form.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
     } as Event;
   }
@@ -633,7 +650,7 @@ export function buildListingData(type: ListingType, form: Record<string, string>
       sqft: parseInt(form.sqft || '500'),
       propertyType: (form.propertyType as Housing['propertyType']) || 'apartment',
       listingType: (form.listingType as Housing['listingType']) || 'rent',
-      images: ['https://source.unsplash.com/400x300/?apartment,home'],
+      images: imageUrl ? [imageUrl] : ['https://source.unsplash.com/400x300/?apartment,home'],
       amenities: [],
       contactName: userName,
       contactPhone: form.phone || '',
@@ -660,5 +677,6 @@ export function buildListingData(type: ListingType, form: Record<string, string>
     benefits: [],
     contactEmail: form.email || '',
     postedDate: new Date().toISOString().split('T')[0],
+    logo: imageUrl,
   } as Job;
 }

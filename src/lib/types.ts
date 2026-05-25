@@ -196,7 +196,7 @@ export interface UserListing {
   type: ListingType;
   data: Business | Event | Housing | Job;
   createdAt: string;
-  status: 'active' | 'pending';
+  status: 'active' | 'pending' | 'rejected';
 }
 
 export type Language = 'en' | 'fr' | 'ar';
