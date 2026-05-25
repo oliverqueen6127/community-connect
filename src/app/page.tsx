@@ -8,6 +8,7 @@ import EventCard from '@/components/cards/EventCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { BUSINESSES, EVENTS, US_CITIES } from '@/lib/data';
 import { useApp } from '@/lib/context';
+import { useFavorites } from '@/lib/favorites-context';
 import { useLanguage } from '@/lib/language-context';
 import LocationPicker from '@/components/ui/LocationPicker';
 import { useListings } from '@/lib/listings-context';
@@ -27,6 +28,7 @@ const TYPE_HREF: Record<string, string> = { business: '/directory', event: '/eve
 
 export default function HomePage() {
   const { selectedCity, setSelectedCity, setSelectedState } = useApp();
+  const { toggleSaved, isSaved } = useFavorites();
   const { t } = useLanguage();
   const { activeListings } = useListings();
 
@@ -179,7 +181,17 @@ export default function HomePage() {
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {featuredBusinesses.map((b) => <BusinessCard key={b.id} business={b} />)}
+            {featuredBusinesses.map((b) => (
+              <BusinessCard
+                key={b.id}
+                business={b}
+                isSaved={isSaved('businesses', b.id)}
+                onSave={() => {
+                  console.log('HOME FAVORITE CLICK', { id: b.id, type: 'businesses', title: b.name });
+                  toggleSaved('businesses', b.id);
+                }}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -251,7 +263,17 @@ export default function HomePage() {
             />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              {upcomingEvents.map((e) => <EventCard key={e.id} event={e} />)}
+              {upcomingEvents.map((e) => (
+                <EventCard
+                  key={e.id}
+                  event={e}
+                  isSaved={isSaved('events', e.id)}
+                  onSave={() => {
+                    console.log('HOME FAVORITE CLICK', { id: e.id, type: 'events', title: e.title });
+                    toggleSaved('events', e.id);
+                  }}
+                />
+              ))}
             </div>
           )}
         </div>
