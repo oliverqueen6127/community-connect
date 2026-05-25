@@ -204,9 +204,94 @@ USING (
 ALTER PUBLICATION supabase_realtime ADD TABLE public.support_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.support_replies;
 
+-- ── SUPPORT: allow users to update read status of their own replies ──────────
+-- Required so markReplyRead() works for regular users.
+DROP POLICY IF EXISTS "Users can update read status of own replies" ON public.support_replies;
+
+CREATE POLICY "Users can update read status of own replies"
+ON public.support_replies
+FOR UPDATE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM public.support_messages
+    WHERE id = support_message_id
+      AND user_id = auth.uid()::text
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.support_messages
+    WHERE id = support_message_id
+      AND user_id = auth.uid()::text
+  )
+);
+
+-- ── SUPPORT: allow users to update their own thread status ───────────────────
+ALTER TABLE public.support_messages ENABLE ROW LEVEL SECURITY;
+
+-- Users can read their own threads
+DROP POLICY IF EXISTS "Users can read own support threads" ON public.support_messages;
+CREATE POLICY "Users can read own support threads"
+ON public.support_messages
+FOR SELECT
+TO authenticated
+USING (user_id = auth.uid()::text);
+
+-- Users can update status on their own threads (e.g., re-mark as unread after follow-up)
+DROP POLICY IF EXISTS "Users can update own support thread status" ON public.support_messages;
+CREATE POLICY "Users can update own support thread status"
+ON public.support_messages
+FOR UPDATE
+TO authenticated
+USING (user_id = auth.uid()::text)
+WITH CHECK (user_id = auth.uid()::text);
+
+-- ── CLEANUP: merge duplicate support threads per user ────────────────────────
+-- Run this ONCE to clean up existing duplicates.
+-- Keeps the OLDEST thread per user; moves all replies to it; deletes extras.
+-- Safe to run multiple times (idempotent after first run).
+
+DO $$
+DECLARE
+  dup RECORD;
+  keep_id uuid;
+BEGIN
+  FOR dup IN
+    SELECT user_id
+    FROM public.support_messages
+    WHERE user_id IS NOT NULL
+    GROUP BY user_id
+    HAVING COUNT(*) > 1
+  LOOP
+    -- Identify the thread to keep (oldest by created_at)
+    SELECT id INTO keep_id
+    FROM public.support_messages
+    WHERE user_id = dup.user_id
+    ORDER BY created_at ASC
+    LIMIT 1;
+
+    -- Move all replies from newer threads into the kept thread
+    UPDATE public.support_replies
+    SET support_message_id = keep_id
+    WHERE support_message_id IN (
+      SELECT id FROM public.support_messages
+      WHERE user_id = dup.user_id AND id != keep_id
+    );
+
+    -- Delete the now-empty duplicate threads
+    DELETE FROM public.support_messages
+    WHERE user_id = dup.user_id AND id != keep_id;
+  END LOOP;
+END;
+$$;
+
 -- ── VERIFY ──────────────────────────────────────────────────
 -- After running, confirm with:
 --   SELECT schemaname, tablename, policyname, cmd, qual
 --   FROM pg_policies
---   WHERE tablename IN ('businesses', 'events', 'housing', 'jobs', 'support_replies')
+--   WHERE tablename IN ('businesses', 'events', 'housing', 'jobs', 'support_replies', 'support_messages')
 --   ORDER BY tablename, policyname;
+--
+-- Verify one thread per user:
+--   SELECT user_id, COUNT(*) FROM public.support_messages GROUP BY user_id HAVING COUNT(*) > 1;

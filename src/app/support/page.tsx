@@ -5,16 +5,21 @@ import Link from 'next/link';
 import { useApp } from '@/lib/context';
 import { useMessages } from '@/lib/messages-context';
 import { useLanguage } from '@/lib/language-context';
+import SupportMessenger from '@/components/support/SupportMessenger';
 
 export default function SupportPage() {
   const { user, addToast } = useApp();
-  const { sendSupportMessage } = useMessages();
+  const { supportMessages, replies, sendSupportMessage, sendUserReply } = useMessages();
   const { t } = useLanguage();
 
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+
+  // One thread per user — take the first one
+  const thread = supportMessages[0] ?? null;
+  const threadReplies = thread ? replies.filter((r) => r.supportMessageId === thread.id) : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +37,8 @@ export default function SupportPage() {
       });
       addToast({ type: 'success', message: t('supportPage', 'sent') });
       setSent(true);
+      setSubject('');
+      setMessage('');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast({ type: 'error', message: `Failed to send: ${msg}` });
@@ -40,6 +47,7 @@ export default function SupportPage() {
     }
   };
 
+  // Not logged in
   if (!user) {
     return (
       <div className="max-w-lg mx-auto px-4 pt-20 flex flex-col items-center gap-6 text-center">
@@ -66,6 +74,61 @@ export default function SupportPage() {
     );
   }
 
+  // User already has a thread → show the full Messenger
+  if (thread) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ background: 'linear-gradient(135deg, rgba(0,227,140,0.15), rgba(0,194,255,0.15))', border: '1px solid rgba(0,227,140,0.25)' }}
+          >
+            <svg className="w-5 h-5 text-[#00E38C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-white">{t('supportPage', 'title')}</h1>
+            <p className="text-white/40 text-sm">Your conversation with support</p>
+          </div>
+        </div>
+
+        {/* Embedded messenger */}
+        <div
+          className="rounded-2xl overflow-hidden flex flex-col"
+          style={{
+            height: 'min(580px, 70vh)',
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            backdropFilter: 'blur(20px)',
+          }}
+        >
+          <SupportMessenger
+            conversation={thread}
+            replies={threadReplies}
+            currentRole="user"
+            onSend={async (text) => {
+              await sendUserReply(thread.id, text);
+            }}
+          />
+        </div>
+
+        {/* Bottom note */}
+        {sent && (
+          <div className="mt-4 p-4 rounded-xl flex items-center gap-3"
+            style={{ background: 'rgba(0,227,140,0.08)', border: '1px solid rgba(0,227,140,0.2)' }}>
+            <svg className="w-5 h-5 text-[#00E38C] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <p className="text-sm text-white/70">Message sent to your conversation.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // No thread yet — show "sent" success state
   if (sent) {
     return (
       <div className="max-w-lg mx-auto px-4 pt-20 flex flex-col items-center gap-6 text-center">
@@ -81,16 +144,26 @@ export default function SupportPage() {
           <h2 className="text-2xl font-black text-white mb-2">{t('supportPage', 'sent')}</h2>
           <p className="text-white/50">{t('supportPage', 'subtitle')}</p>
         </div>
-        <button
-          onClick={() => { setSent(false); setSubject(''); setMessage(''); }}
-          className="px-6 py-3 rounded-xl font-semibold text-sm border border-white/15 text-white/70 hover:text-white hover:border-white/30 transition-all"
-        >
-          {t('supportPage', 'send')}
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => { setSent(false); setSubject(''); setMessage(''); }}
+            className="px-6 py-3 rounded-xl font-semibold text-sm border border-white/15 text-white/70 hover:text-white hover:border-white/30 transition-all"
+          >
+            {t('supportPage', 'send')}
+          </button>
+          <Link
+            href="/profile"
+            className="px-6 py-3 rounded-xl font-bold text-sm text-[#050816] transition-all"
+            style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}
+          >
+            View conversation →
+          </Link>
+        </div>
       </div>
     );
   }
 
+  // No thread → show the new-conversation form
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* Header */}

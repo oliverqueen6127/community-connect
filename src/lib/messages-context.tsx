@@ -192,32 +192,85 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // ── Support messages (Supabase) ───────────────────────────────────────────
+  // ── Support messages (Supabase) — one thread per user ────────────────────
   const sendSupportMessage = useCallback(async (msg: Omit<SupportMessage, 'id' | 'timestamp' | 'read'>) => {
     if (!isSupabaseEnabled || !supabase) {
       throw new Error('Supabase not configured — support messages unavailable.');
     }
-
-    const { data, error } = await supabase
-      .from('support_messages')
-      .insert({
-        user_id: msg.fromUserId || null,
-        from_name: msg.fromUserName,
-        from_email: msg.fromUserEmail,
-        subject: msg.subject || '',
-        message: msg.content,
-        page: msg.page || '',
-        status: 'unread',
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('[Support] Supabase insert failed:', error.message);
-      throw new Error(error.message);
+    if (!msg.fromUserId) {
+      throw new Error('Must be logged in to send support messages.');
     }
 
-    setSupportMessages((prev) => [dbToSupportMessage(data as DbSupportMessage), ...prev]);
+    // Always check DB — prevents duplicates even after page refresh
+    const { data: existingThread } = await supabase
+      .from('support_messages')
+      .select('id')
+      .eq('user_id', msg.fromUserId)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingThread) {
+      // Thread exists → add to it as a user reply (never create another thread)
+      const { data: replyData, error: replyErr } = await supabase
+        .from('support_replies')
+        .insert({
+          support_message_id: existingThread.id,
+          sender_role: 'user',
+          sender_id: msg.fromUserId,
+          sender_name: msg.fromUserName,
+          message: msg.content,
+          read: false,
+        })
+        .select()
+        .single();
+
+      if (replyErr) {
+        console.error('[sendSupportMessage] reply insert error:', replyErr.message);
+        throw new Error(replyErr.message);
+      }
+
+      if (replyData) {
+        setReplies((prev) => {
+          if (prev.find((r) => r.id === replyData.id)) return prev;
+          return [...prev, dbToSupportReply(replyData as DbSupportReply)];
+        });
+      }
+
+      // Re-mark thread as unread so admin sees the new activity
+      supabase
+        .from('support_messages')
+        .update({ status: 'unread' })
+        .eq('id', existingThread.id)
+        .then(({ error }) => { if (error) console.error('[sendSupportMessage] unread update:', error.message); });
+
+      setSupportMessages((prev) =>
+        prev.map((m) => m.id === existingThread.id ? { ...m, read: false } : m),
+      );
+
+    } else {
+      // No thread yet — create it
+      const { data, error } = await supabase
+        .from('support_messages')
+        .insert({
+          user_id: msg.fromUserId,
+          from_name: msg.fromUserName,
+          from_email: msg.fromUserEmail,
+          subject: msg.subject || '',
+          message: msg.content,
+          page: msg.page || '',
+          status: 'unread',
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[sendSupportMessage] thread create error:', error.message);
+        throw new Error(error.message);
+      }
+
+      setSupportMessages((prev) => [dbToSupportMessage(data as DbSupportMessage), ...prev]);
+    }
   }, []);
 
   // sendReply — admin only; goes through service-key API route
@@ -353,6 +406,17 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
           });
         },
       );
+      // Sync status changes (read/unread) triggered by user follow-up messages
+      ch.on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'support_messages' },
+        (payload: { new: DbSupportMessage }) => {
+          const row = payload.new;
+          setSupportMessages((prev) =>
+            prev.map((m) => m.id === row.id ? dbToSupportMessage(row) : m),
+          );
+        },
+      );
     }
 
     const channel = ch;
@@ -369,7 +433,11 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     userMessages.filter((m) => m.toUserId === userId && !m.read).length,
   [userMessages]);
 
-  const unreadSupportCount = supportMessages.filter((m) => !m.read).length;
+  // A thread is "unread" if its status is unread OR if there are unread user replies
+  const unreadSupportCount = supportMessages.filter((m) => {
+    if (!m.read) return true;
+    return replies.some((r) => r.supportMessageId === m.id && r.senderRole === 'user' && !r.read);
+  }).length;
   const unreadReplyCount = replies.filter((r) => r.senderRole === 'admin' && !r.read).length;
 
   return (

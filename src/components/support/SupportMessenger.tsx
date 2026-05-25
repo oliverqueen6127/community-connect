@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { SupportMessage, SupportReply } from '@/lib/types';
 
 interface SupportMessengerProps {
@@ -39,16 +39,18 @@ export default function SupportMessenger({
 }: SupportMessengerProps) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Scroll to bottom when new messages arrive
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [replies.length, conversation.id]);
 
-  // Focus input when conversation changes
+  // Reset text when conversation changes
   useEffect(() => {
-    textareaRef.current?.focus();
+    setText('');
   }, [conversation.id]);
 
   const bubbles: Bubble[] = [
@@ -68,7 +70,7 @@ export default function SupportMessenger({
     })),
   ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  const handleSend = async () => {
+  const handleSend = useCallback(async () => {
     const trimmed = text.trim();
     if (!trimmed || sending) return;
     setSending(true);
@@ -80,9 +82,8 @@ export default function SupportMessenger({
       await onSend(trimmed);
     } finally {
       setSending(false);
-      textareaRef.current?.focus();
     }
-  };
+  }, [text, sending, onSend]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -91,10 +92,20 @@ export default function SupportMessenger({
     }
   };
 
+  // Scroll the input into view when focused (mobile keyboard pushes it up)
+  const handleFocus = () => {
+    setTimeout(() => {
+      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 350);
+  };
+
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col w-full" style={{ height: '100%', minHeight: 0 }}>
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-white/8 flex-shrink-0">
+      <div
+        className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
+        style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+      >
         <div
           className="w-9 h-9 rounded-full flex items-center justify-center text-[#050816] text-sm font-bold flex-shrink-0"
           style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}
@@ -105,7 +116,7 @@ export default function SupportMessenger({
           <p className="font-bold text-white text-sm truncate">{conversation.fromUserName}</p>
           <p className="text-xs text-white/30 truncate">{conversation.fromUserEmail}</p>
         </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1 flex-shrink-0">
           {onMarkRead && !conversation.read && (
             <button
               onClick={onMarkRead}
@@ -128,9 +139,10 @@ export default function SupportMessenger({
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1.5 text-white/40 hover:text-white hover:bg-white/8 rounded-xl transition-colors"
+              className="p-2 text-white/50 hover:text-white hover:bg-white/8 rounded-xl transition-colors"
+              aria-label="Close"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -140,65 +152,83 @@ export default function SupportMessenger({
 
       {/* Subject bar */}
       {conversation.subject && (
-        <div className="px-4 py-2 bg-white/[0.02] border-b border-white/5 flex-shrink-0">
-          <p className="text-xs text-white/30">
-            Subject: <span className="text-white/50 font-medium">{conversation.subject}</span>
+        <div
+          className="px-4 py-2 flex-shrink-0"
+          style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          <p className="text-xs text-white/30 truncate">
+            Re: <span className="text-white/50 font-medium">{conversation.subject}</span>
           </p>
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
-        {bubbles.map((bubble) => {
-          const isMe = bubble.senderRole === currentRole;
-          return (
-            <div key={bubble.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[75%] flex flex-col gap-1 ${isMe ? 'items-end' : 'items-start'}`}>
-                {!isMe && (
-                  <span className="text-[10px] font-bold text-white/40 px-1">{bubble.senderName}</span>
-                )}
-                <div
-                  className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                    isMe ? 'text-[#050816] rounded-tr-sm' : 'bg-white/[0.08] text-white/80 border border-white/8 rounded-tl-sm'
-                  }`}
-                  style={isMe ? { background: 'linear-gradient(135deg, #00E38C, #00C2FF)' } : {}}
-                >
-                  {bubble.message}
+      {/* Messages area */}
+      <div
+        ref={messagesRef}
+        className="flex-1 overflow-y-auto px-4 py-4"
+        style={{ minHeight: 0, overscrollBehavior: 'contain' }}
+      >
+        <div className="space-y-3">
+          {bubbles.map((bubble) => {
+            const isMe = bubble.senderRole === currentRole;
+            return (
+              <div key={bubble.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div className={`flex flex-col gap-1 ${isMe ? 'items-end' : 'items-start'}`} style={{ maxWidth: '78%' }}>
+                  {!isMe && (
+                    <span className="text-[10px] font-semibold text-white/40 px-1">{bubble.senderName}</span>
+                  )}
+                  <div
+                    className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed break-words ${
+                      isMe ? 'text-[#050816] rounded-tr-sm' : 'text-white/85 rounded-tl-sm'
+                    }`}
+                    style={
+                      isMe
+                        ? { background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }
+                        : { background: 'rgba(255,255,255,0.09)', border: '1px solid rgba(255,255,255,0.08)' }
+                    }
+                  >
+                    {bubble.message}
+                  </div>
+                  <span className="text-[10px] text-white/20 px-1">{formatTime(bubble.createdAt)}</span>
                 </div>
-                <span className="text-[10px] text-white/20 px-1">{formatTime(bubble.createdAt)}</span>
               </div>
-            </div>
-          );
-        })}
-        <div ref={bottomRef} />
+            );
+          })}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      {/* Input */}
-      <div className="px-4 py-3 border-t border-white/8 flex-shrink-0">
+      {/* Input area */}
+      <div
+        className="flex-shrink-0 px-3 py-3"
+        style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
+      >
         <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={handleFocus}
             onInput={(e) => {
               const el = e.currentTarget;
               el.style.height = 'auto';
-              el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+              el.style.height = `${Math.min(el.scrollHeight, 100)}px`;
             }}
-            placeholder={`Message ${currentRole === 'admin' ? conversation.fromUserName : 'Support'}… (Enter to send)`}
+            placeholder={`Message ${currentRole === 'admin' ? conversation.fromUserName : 'Support'}…`}
             rows={1}
-            className="flex-1 px-4 py-2.5 rounded-2xl text-sm text-white placeholder-white/25 focus:outline-none resize-none leading-relaxed"
+            className="flex-1 px-3 py-2.5 rounded-2xl text-sm text-white placeholder-white/25 focus:outline-none resize-none leading-relaxed"
             style={{
               background: 'rgba(255,255,255,0.06)',
               border: text ? '1px solid rgba(0,227,140,0.35)' : '1px solid rgba(255,255,255,0.1)',
-              maxHeight: '120px',
+              maxHeight: '100px',
+              minHeight: '40px',
             }}
           />
           <button
             onClick={handleSend}
             disabled={!text.trim() || sending}
-            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all disabled:opacity-40 flex-shrink-0"
+            className="w-10 h-10 rounded-xl flex items-center justify-center transition-all flex-shrink-0 disabled:opacity-40"
             style={
               text.trim() && !sending
                 ? { background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }
@@ -219,7 +249,7 @@ export default function SupportMessenger({
             )}
           </button>
         </div>
-        <p className="text-[10px] text-white/15 mt-1.5 pl-1">Shift+Enter for new line</p>
+        <p className="text-[10px] text-white/15 mt-1.5 pl-1 hidden sm:block">Enter to send · Shift+Enter for new line</p>
       </div>
     </div>
   );
