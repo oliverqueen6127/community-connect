@@ -9,6 +9,7 @@ import { useListings } from '@/lib/listings-context';
 import { useLanguage } from '@/lib/language-context';
 import { BUSINESSES, EVENTS, HOUSING, JOBS } from '@/lib/data';
 import { Business, Event, Housing, Job } from '@/lib/types';
+import SupportMessenger from '@/components/support/SupportMessenger';
 
 type AdminTab = 'overview' | 'businesses' | 'events' | 'housing' | 'jobs' | 'users' | 'messages' | 'listings';
 type ListingFilter = 'all' | 'pending' | 'active' | 'rejected';
@@ -103,9 +104,8 @@ export default function AdminPage() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('all');
-  const [replyTarget, setReplyTarget] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState('');
-  const [replying, setReplying] = useState(false);
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+  const [convSearch, setConvSearch] = useState('');
 
   // ── Auth guard ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -153,22 +153,43 @@ export default function AdminPage() {
     });
   }, [users, userSearch, userRoleFilter]);
 
-  // ── Admin reply to support message ─────────────────────────────────────────
-  const handleReply = useCallback(async (targetMsg: { id: string; fromUserEmail: string; fromUserName: string }) => {
-    if (!replyText.trim()) return;
-    setReplying(true);
+  // ── Messenger derived data ─────────────────────────────────────────────────
+  const selectedConv = useMemo(
+    () => supportMessages.find((m) => m.id === selectedConvId) ?? null,
+    [supportMessages, selectedConvId],
+  );
+
+  const sortedConversations = useMemo(() => {
+    const q = convSearch.trim().toLowerCase();
+    const filtered = q
+      ? supportMessages.filter(
+          (m) =>
+            m.fromUserName.toLowerCase().includes(q) ||
+            m.fromUserEmail.toLowerCase().includes(q) ||
+            m.content.toLowerCase().includes(q) ||
+            (m.subject ?? '').toLowerCase().includes(q),
+        )
+      : supportMessages;
+
+    return [...filtered].sort((a, b) => {
+      const aReplies = replies.filter((r) => r.supportMessageId === a.id);
+      const bReplies = replies.filter((r) => r.supportMessageId === b.id);
+      const aLast = aReplies.length > 0 ? aReplies[aReplies.length - 1].createdAt : a.timestamp;
+      const bLast = bReplies.length > 0 ? bReplies[bReplies.length - 1].createdAt : b.timestamp;
+      return new Date(bLast).getTime() - new Date(aLast).getTime();
+    });
+  }, [supportMessages, replies, convSearch]);
+
+  const handleAdminSend = useCallback(async (text: string) => {
+    if (!selectedConvId) return;
     try {
-      await sendReply(targetMsg.id, replyText.trim());
-      setReplyTarget(null);
-      setReplyText('');
-      addToast({ type: 'success', message: `Reply sent to ${targetMsg.fromUserName}.` });
+      await sendReply(selectedConvId, text);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast({ type: 'error', message: `Reply failed: ${msg}` });
-    } finally {
-      setReplying(false);
+      throw err;
     }
-  }, [replyText, sendReply, addToast]);
+  }, [selectedConvId, sendReply, addToast]);
 
   // ── Loading guard ──────────────────────────────────────────────────────────
   if (isLoading || !user || user.role !== 'admin' || user.id !== 'mock-admin-1') {
@@ -567,111 +588,118 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── Messages ── */}
+      {/* ── Messages (Messenger split-view) ── */}
       {activeTab === 'messages' && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-black text-white">
-              {supportMessages.length} messages
-              {unreadSupportCount > 0 && <span className="text-sm font-semibold text-red-400 ml-2">({unreadSupportCount} unread)</span>}
-            </h3>
-            <Link href="/admin/messages" className="px-4 py-2 text-[#050816] text-sm font-bold rounded-xl transition-all"
-              style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>Full view →</Link>
-          </div>
-
-          {supportMessages.length === 0 ? (
-            <div className="text-center py-16 glass-card rounded-3xl border border-white/8">
-              <div className="text-5xl mb-4">💬</div>
-              <p className="text-white/30">No support messages yet.</p>
+        <div
+          className="glass border border-white/8 rounded-2xl overflow-hidden flex"
+          style={{ height: 'calc(100vh - 260px)', minHeight: '520px' }}
+        >
+          {/* Left: conversation list */}
+          <div className="w-72 flex-shrink-0 border-r border-white/8 flex flex-col">
+            {/* Search */}
+            <div className="p-3 border-b border-white/8 flex-shrink-0">
+              <input
+                value={convSearch}
+                onChange={(e) => setConvSearch(e.target.value)}
+                placeholder="Search conversations…"
+                className="w-full px-3 py-2 rounded-xl text-xs text-white placeholder-white/25 focus:outline-none"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+              />
             </div>
-          ) : (
-            supportMessages
-              .slice()
-              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-              .map((msg) => (
-                <div key={msg.id} className={`glass-card rounded-2xl border p-5 ${!msg.read ? 'border-[#00E38C]/30' : 'border-white/8'}`}>
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-[#050816] text-sm font-bold flex-shrink-0"
-                      style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>
-                      {msg.fromUserName.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white text-sm">{msg.fromUserName}</span>
-                          {!msg.read && <span className="bg-[#00E38C] text-[#050816] text-[10px] font-bold px-1.5 py-0.5 rounded-full">NEW</span>}
-                        </div>
-                        <span className="text-xs text-white/20">{new Date(msg.timestamp).toLocaleDateString()}</span>
-                      </div>
-                      <p className="text-xs text-white/30 mt-0.5">{msg.fromUserEmail}</p>
-                      {msg.subject && <p className="text-xs font-semibold text-white/50 mt-1">Subject: {msg.subject}</p>}
-                      <p className="text-sm text-white/70 mt-2">{msg.content}</p>
-                    </div>
-                  </div>
 
-                  {/* Existing replies thread */}
-                  {replies.filter((r) => r.supportMessageId === msg.id).length > 0 && (
-                    <div className="mt-3 ml-13 border-l-2 border-[#00E38C]/20 pl-3 space-y-2">
-                      {replies
-                        .filter((r) => r.supportMessageId === msg.id)
-                        .map((reply) => (
-                          <div key={reply.id} className="text-sm">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span className="text-xs font-bold text-[#00E38C]">↩ {reply.senderName}</span>
-                              <span className="text-xs text-white/20">{new Date(reply.createdAt).toLocaleDateString()}</span>
-                            </div>
-                            <p className="text-white/60">{reply.message}</p>
-                          </div>
-                        ))}
-                    </div>
-                  )}
+            {/* List */}
+            <div className="flex-1 overflow-y-auto">
+              {sortedConversations.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3 px-4">
+                  <div className="text-4xl">💬</div>
+                  <p className="text-white/30 text-sm text-center">
+                    {convSearch ? 'No results' : 'No conversations yet'}
+                  </p>
+                </div>
+              ) : (
+                sortedConversations.map((msg) => {
+                  const msgReplies = replies.filter((r) => r.supportMessageId === msg.id);
+                  const lastReply = msgReplies.length > 0 ? msgReplies[msgReplies.length - 1] : null;
+                  const preview = lastReply ? lastReply.message : msg.content;
+                  const unreadUserReplies = msgReplies.filter((r) => r.senderRole === 'user' && !r.read).length;
+                  const isUnread = !msg.read || unreadUserReplies > 0;
+                  const isSelected = selectedConvId === msg.id;
 
-                  {/* Reply textarea */}
-                  {replyTarget === msg.id && (
-                    <div className="mt-4 space-y-2">
-                      <textarea
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        placeholder={`Reply to ${msg.fromUserName}…`}
-                        className="glass-input w-full px-3 py-2 rounded-xl text-sm resize-none"
-                        rows={3}
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleReply({ id: msg.id, fromUserEmail: msg.fromUserEmail, fromUserName: msg.fromUserName })}
-                          disabled={replying || !replyText.trim()}
-                          className="px-4 py-1.5 text-[#050816] text-xs font-bold rounded-xl disabled:opacity-50 transition-all"
+                  return (
+                    <button
+                      key={msg.id}
+                      onClick={() => {
+                        setSelectedConvId(msg.id);
+                        if (!msg.read) markSupportMessageRead(msg.id);
+                      }}
+                      className={`w-full text-left px-4 py-3 border-b border-white/5 transition-all ${
+                        isSelected
+                          ? 'bg-[#00E38C]/8 border-l-2 border-l-[#00E38C]'
+                          : 'hover:bg-white/[0.03]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className="w-9 h-9 rounded-full flex items-center justify-center text-[#050816] text-xs font-bold flex-shrink-0"
                           style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}
                         >
-                          {replying ? 'Sending…' : 'Send Reply'}
-                        </button>
-                        <button onClick={() => { setReplyTarget(null); setReplyText(''); }} className="px-3 py-1.5 text-xs font-semibold text-white/40 hover:text-white border border-white/10 rounded-xl transition-colors">
-                          Cancel
-                        </button>
+                          {msg.fromUserName.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className={`text-xs font-bold truncate flex-1 ${isUnread ? 'text-white' : 'text-white/60'}`}>
+                              {msg.fromUserName}
+                            </span>
+                            {isUnread && (
+                              <div className="w-2 h-2 rounded-full bg-[#00E38C] flex-shrink-0" />
+                            )}
+                            {unreadUserReplies > 0 && (
+                              <span className="bg-[#00E38C] text-[#050816] text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                {unreadUserReplies}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-white/30 truncate">{preview}</p>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
 
-                  {/* Action buttons */}
-                  <div className="flex items-center gap-2 mt-3 flex-wrap">
-                    {!msg.read && (
-                      <button onClick={() => markSupportMessageRead(msg.id)} className="px-3 py-1.5 text-xs font-semibold text-[#00E38C] border border-[#00E38C]/30 rounded-xl hover:bg-[#00E38C]/10 transition-colors">
-                        Mark Read
-                      </button>
-                    )}
-                    <button
-                      onClick={() => { setReplyTarget(replyTarget === msg.id ? null : msg.id); setReplyText(''); }}
-                      className="px-3 py-1.5 text-xs font-semibold text-white/50 border border-white/10 rounded-xl hover:border-white/20 transition-colors"
-                    >
-                      {replyTarget === msg.id ? 'Close' : '↩ Reply'}
-                    </button>
-                    <button onClick={() => deleteSupportMessage(msg.id)} className="px-3 py-1.5 text-xs font-semibold text-red-400 border border-red-500/20 rounded-xl hover:bg-red-500/10 transition-colors ml-auto">
-                      Delete
-                    </button>
-                  </div>
+            {/* Footer summary */}
+            <div className="p-3 border-t border-white/8 flex-shrink-0">
+              <p className="text-xs text-white/20 text-center">
+                {supportMessages.length} conversation{supportMessages.length !== 1 ? 's' : ''}
+                {unreadSupportCount > 0 && ` · ${unreadSupportCount} unread`}
+              </p>
+            </div>
+          </div>
+
+          {/* Right: chat panel */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {selectedConv ? (
+              <SupportMessenger
+                conversation={selectedConv}
+                replies={replies.filter((r) => r.supportMessageId === selectedConv.id)}
+                currentRole="admin"
+                onSend={handleAdminSend}
+                onMarkRead={!selectedConv.read ? () => markSupportMessageRead(selectedConv.id) : undefined}
+                onDelete={() => { deleteSupportMessage(selectedConv.id); setSelectedConvId(null); }}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-4">
+                <div className="text-5xl">💬</div>
+                <div className="text-center">
+                  <p className="text-white/40 font-semibold">Select a conversation</p>
+                  <p className="text-white/20 text-sm mt-1">
+                    {supportMessages.length === 0 ? 'No messages yet' : 'Choose from the list on the left'}
+                  </p>
                 </div>
-              ))
-          )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

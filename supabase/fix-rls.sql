@@ -161,9 +161,52 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.events;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.housing;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.jobs;
 
+-- ── SUPPORT REPLIES: user INSERT policy ─────────────────────
+-- Required for users to send follow-up messages in a support thread.
+-- Assumes support_replies and support_messages tables already exist.
+
+ALTER TABLE public.support_replies ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can insert their own replies" ON public.support_replies;
+
+CREATE POLICY "Users can insert their own replies"
+ON public.support_replies
+FOR INSERT
+TO authenticated
+WITH CHECK (
+  sender_role = 'user' AND
+  sender_id = auth.uid()::text AND
+  EXISTS (
+    SELECT 1 FROM public.support_messages
+    WHERE id = support_message_id
+      AND user_id = auth.uid()::text
+  )
+);
+
+-- Users can also read replies on their own support messages
+DROP POLICY IF EXISTS "Users can read replies on own messages" ON public.support_replies;
+
+CREATE POLICY "Users can read replies on own messages"
+ON public.support_replies
+FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM public.support_messages
+    WHERE id = support_message_id
+      AND user_id = auth.uid()::text
+  )
+);
+
+-- ── REALTIME: enable for support tables ──────────────────────
+-- Required for postgres_changes subscriptions (Messenger feature).
+
+ALTER PUBLICATION supabase_realtime ADD TABLE public.support_messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.support_replies;
+
 -- ── VERIFY ──────────────────────────────────────────────────
 -- After running, confirm with:
 --   SELECT schemaname, tablename, policyname, cmd, qual
 --   FROM pg_policies
---   WHERE tablename IN ('businesses', 'events', 'housing', 'jobs')
+--   WHERE tablename IN ('businesses', 'events', 'housing', 'jobs', 'support_replies')
 --   ORDER BY tablename, policyname;

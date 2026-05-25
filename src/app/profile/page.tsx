@@ -8,10 +8,12 @@ import { useMessages } from '@/lib/messages-context';
 import { useListings } from '@/lib/listings-context';
 import { useLanguage } from '@/lib/language-context';
 import { BUSINESSES, EVENTS, HOUSING, JOBS } from '@/lib/data';
+import { SupportMessage } from '@/lib/types';
 import BusinessCard from '@/components/cards/BusinessCard';
 import EventCard from '@/components/cards/EventCard';
 import HousingCard from '@/components/cards/HousingCard';
 import JobCard from '@/components/cards/JobCard';
+import SupportMessenger from '@/components/support/SupportMessenger';
 
 type Tab = 'overview' | 'favorites' | 'listings' | 'messages';
 
@@ -29,11 +31,12 @@ function formatDate(iso: string) {
 
 export default function ProfilePage() {
   const { user, isLoading, isSaved, toggleSaved, logout } = useApp();
-  const { userMessages, supportMessages, replies, unreadUserCount, unreadReplyCount, markReplyRead } = useMessages();
+  const { userMessages, supportMessages, replies, unreadUserCount, unreadReplyCount, markReplyRead, sendUserReply } = useMessages();
   const { getListingsByUser, deleteListing } = useListings();
   const { t } = useLanguage();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('overview');
+  const [openChatConv, setOpenChatConv] = useState<SupportMessage | null>(null);
 
   React.useEffect(() => {
     if (!isLoading && !user) router.push('/auth/login?redirect=/profile');
@@ -67,6 +70,7 @@ export default function ProfilePage() {
   ];
 
   return (
+    <>
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 pt-8">
 
       {/* Profile header */}
@@ -310,45 +314,47 @@ export default function ProfilePage() {
               <div className="space-y-3">
                 {supportMessages.map((msg) => {
                   const msgReplies = replies.filter((r) => r.supportMessageId === msg.id);
-                  const unreadReplies = msgReplies.filter((r) => !r.read && r.senderRole === 'admin');
+                  const unreadAdminReplies = msgReplies.filter((r) => !r.read && r.senderRole === 'admin');
+                  const lastReply = msgReplies[msgReplies.length - 1];
                   return (
-                    <div key={msg.id} className={`glass-card rounded-2xl border p-4 ${unreadReplies.length > 0 ? 'border-[#00E38C]/30' : 'border-white/8'}`}>
-                      {/* Original message */}
+                    <div
+                      key={msg.id}
+                      className={`glass-card rounded-2xl border p-4 cursor-pointer hover:border-[#00E38C]/40 transition-all ${
+                        unreadAdminReplies.length > 0 ? 'border-[#00E38C]/30' : 'border-white/8'
+                      }`}
+                      onClick={() => {
+                        setOpenChatConv(msg);
+                        unreadAdminReplies.forEach((r) => markReplyRead(r.id));
+                      }}
+                    >
                       <div className="flex items-start gap-3">
                         <div className="w-9 h-9 rounded-full bg-white/8 border border-white/10 flex items-center justify-center text-base flex-shrink-0">💬</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap mb-1">
                             <span className="text-xs font-bold text-white/60">You → Support</span>
-                            {unreadReplies.length > 0 && (
+                            {unreadAdminReplies.length > 0 && (
                               <span className="bg-[#00E38C] text-[#050816] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                                {unreadReplies.length} new reply
+                                {unreadAdminReplies.length} new
                               </span>
                             )}
                             <span className="text-xs text-white/20 ml-auto">{formatDate(msg.timestamp)}</span>
                           </div>
                           {msg.subject && <p className="text-xs font-semibold text-white/40 mb-1">{msg.subject}</p>}
-                          <p className="text-sm text-white/60">{msg.content}</p>
+                          <p className="text-sm text-white/60 line-clamp-2">
+                            {lastReply ? lastReply.message : msg.content}
+                          </p>
+                          {msgReplies.length > 0 && (
+                            <p className="text-[11px] text-white/30 mt-1.5">
+                              {msgReplies.length} message{msgReplies.length !== 1 ? 's' : ''} · tap to open chat
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0">
+                          <span className="text-xs font-semibold text-[#00E38C]">
+                            {msgReplies.length > 0 ? `Chat (${msgReplies.length})` : 'Open'}
+                          </span>
                         </div>
                       </div>
-
-                      {/* Admin replies */}
-                      {msgReplies.length > 0 && (
-                        <div className="mt-3 ml-12 border-l-2 border-[#00E38C]/20 pl-3 space-y-2">
-                          {msgReplies.map((reply) => (
-                            <div key={reply.id}
-                              className={`rounded-xl p-3 ${!reply.read ? 'bg-[#00E38C]/5 border border-[#00E38C]/15' : 'bg-white/[0.03]'}`}
-                              onClick={() => { if (!reply.read) markReplyRead(reply.id); }}
-                            >
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-xs font-bold text-[#00E38C]">↩ {reply.senderName}</span>
-                                {!reply.read && <span className="bg-[#00E38C] text-[#050816] text-[9px] font-bold px-1.5 py-0.5 rounded-full">NEW</span>}
-                                <span className="text-xs text-white/20">{formatDate(reply.createdAt)}</span>
-                              </div>
-                              <p className="text-sm text-white/70">{reply.message}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -408,5 +414,35 @@ export default function ProfilePage() {
         </div>
       )}
     </div>
+
+      {/* Support chat modal */}
+      {openChatConv && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setOpenChatConv(null)}
+          />
+          <div
+            className="relative w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col"
+            style={{
+              height: 'min(600px, 85vh)',
+              background: 'rgba(5, 8, 22, 0.97)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              backdropFilter: 'blur(24px)',
+            }}
+          >
+            <SupportMessenger
+              conversation={openChatConv}
+              replies={replies.filter((r) => r.supportMessageId === openChatConv.id)}
+              currentRole="user"
+              onSend={async (text) => {
+                await sendUserReply(openChatConv.id, text);
+              }}
+              onClose={() => setOpenChatConv(null)}
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

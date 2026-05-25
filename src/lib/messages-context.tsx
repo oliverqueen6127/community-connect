@@ -65,6 +65,7 @@ interface MessagesContextType {
   sendUserMessage: (msg: Omit<UserMessage, 'id' | 'timestamp' | 'read'>) => void;
   sendSupportMessage: (msg: Omit<SupportMessage, 'id' | 'timestamp' | 'read'>) => Promise<void>;
   sendReply: (supportMessageId: string, replyText: string) => Promise<void>;
+  sendUserReply: (supportMessageId: string, text: string) => Promise<void>;
   markUserMessageRead: (id: string) => void;
   markSupportMessageRead: (id: string) => void;
   markReplyRead: (id: string) => void;
@@ -86,6 +87,9 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
 
   const userRef = useRef(user);
   useEffect(() => { userRef.current = user; }, [user]);
+
+  const supportMessagesRef = useRef<SupportMessage[]>([]);
+  useEffect(() => { supportMessagesRef.current = supportMessages; }, [supportMessages]);
 
   // ── Load messages when user changes ───────────────────────────────────────
   useEffect(() => {
@@ -239,6 +243,35 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  // sendUserReply — regular users sending follow-up messages in a support thread
+  const sendUserReply = useCallback(async (supportMessageId: string, text: string) => {
+    if (!isSupabaseEnabled || !supabase) {
+      throw new Error('Supabase not configured');
+    }
+    const u = userRef.current;
+    if (!u) throw new Error('Not authenticated');
+
+    const { data, error } = await supabase
+      .from('support_replies')
+      .insert({
+        support_message_id: supportMessageId,
+        sender_role: 'user',
+        sender_id: u.id,
+        sender_name: u.name,
+        message: text,
+        read: false,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[sendUserReply] error:', error.message);
+      throw new Error(error.message);
+    }
+
+    setReplies((prev) => [...prev, dbToSupportReply(data as DbSupportReply)]);
+  }, []);
+
   const markSupportMessageRead = useCallback((id: string) => {
     setSupportMessages((prev) => prev.map((m) => m.id === id ? { ...m, read: true } : m));
 
@@ -281,6 +314,57 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ── Realtime subscriptions ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isSupabaseEnabled || !supabase || !user) return;
+
+    const isAdmin = user.id === 'mock-admin-1';
+    const isRealUser = !user.id.startsWith('mock-');
+    if (!isAdmin && !isRealUser) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ch = supabase.channel(`support-rt-${user.id}`) as any;
+
+    ch.on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'support_replies' },
+      (payload: { new: DbSupportReply }) => {
+        const row = payload.new;
+        setReplies((prev) => {
+          if (prev.find((r) => r.id === row.id)) return prev;
+          if (!isAdmin) {
+            const myIds = supportMessagesRef.current.map((m) => m.id);
+            if (!myIds.includes(row.support_message_id)) return prev;
+          }
+          return [...prev, dbToSupportReply(row)];
+        });
+      },
+    );
+
+    if (isAdmin) {
+      ch.on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'support_messages' },
+        (payload: { new: DbSupportMessage }) => {
+          const row = payload.new;
+          setSupportMessages((prev) => {
+            if (prev.find((m) => m.id === row.id)) return prev;
+            return [dbToSupportMessage(row), ...prev];
+          });
+        },
+      );
+    }
+
+    const channel = ch;
+
+    channel.subscribe();
+
+    return () => {
+      supabase?.removeChannel(channel);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   const unreadUserCount = useCallback((userId: string) =>
     userMessages.filter((m) => m.toUserId === userId && !m.read).length,
   [userMessages]);
@@ -291,7 +375,7 @@ export function MessagesProvider({ children }: { children: React.ReactNode }) {
   return (
     <MessagesContext.Provider value={{
       userMessages, supportMessages, replies,
-      sendUserMessage, sendSupportMessage, sendReply, replyToUserMessage,
+      sendUserMessage, sendSupportMessage, sendReply, sendUserReply, replyToUserMessage,
       markUserMessageRead, markSupportMessageRead, markReplyRead,
       deleteSupportMessage, deleteUserMessage,
       unreadUserCount, unreadSupportCount, unreadReplyCount,
