@@ -5,19 +5,36 @@ import { BUSINESSES } from '@/lib/data';
 import BusinessCard from '@/components/cards/BusinessCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
+import { useListings } from '@/lib/listings-context';
+import { Business } from '@/lib/types';
 
 const CATEGORIES = ['All', 'halal', 'restaurant', 'mosque', 'grocery', 'school', 'healthcare', 'retail', 'services'];
 
 export default function DirectoryPage() {
   const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
+  const { activeListings } = useListings();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState<'rating' | 'name' | 'reviews'>('rating');
   const [showOpen, setShowOpen] = useState(false);
 
+  const userBusinesses = useMemo(
+    () => activeListings.filter((l) => l.type === 'business').map((l) => l.data as Business),
+    [activeListings]
+  );
+
+  const allBusinesses = useMemo(
+    () => {
+      const staticIds = new Set(BUSINESSES.map((b) => b.id));
+      const newOnes = userBusinesses.filter((b) => !staticIds.has(b.id));
+      return [...BUSINESSES, ...newOnes];
+    },
+    [userBusinesses]
+  );
+
   const byCity = useMemo(
-    () => BUSINESSES.filter((b) => b.city.toLowerCase() === selectedCity.toLowerCase()),
-    [selectedCity]
+    () => allBusinesses.filter((b) => b.city.toLowerCase() === selectedCity.toLowerCase()),
+    [allBusinesses, selectedCity]
   );
 
   const filtered = useMemo(() => {

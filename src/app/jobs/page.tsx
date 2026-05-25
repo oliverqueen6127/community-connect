@@ -5,19 +5,36 @@ import { JOBS } from '@/lib/data';
 import JobCard from '@/components/cards/JobCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
+import { useListings } from '@/lib/listings-context';
+import { Job } from '@/lib/types';
 
 const CATEGORIES = ['All', 'technology', 'food service', 'education', 'healthcare', 'marketing', 'delivery', 'warehouse', 'design'];
 
 export default function JobsPage() {
   const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
+  const { activeListings } = useListings();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [jobType, setJobType] = useState('all');
   const [remoteOnly, setRemoteOnly] = useState(false);
 
+  const userJobs = useMemo(
+    () => activeListings.filter((l) => l.type === 'job').map((l) => l.data as Job),
+    [activeListings]
+  );
+
+  const allJobs = useMemo(
+    () => {
+      const staticIds = new Set(JOBS.map((j) => j.id));
+      const newOnes = userJobs.filter((j) => !staticIds.has(j.id));
+      return [...JOBS, ...newOnes];
+    },
+    [userJobs]
+  );
+
   const byCity = useMemo(
-    () => JOBS.filter((j) => j.remote || j.city.toLowerCase() === selectedCity.toLowerCase()),
-    [selectedCity]
+    () => allJobs.filter((j) => j.remote || j.city.toLowerCase() === selectedCity.toLowerCase()),
+    [allJobs, selectedCity]
   );
 
   const filtered = useMemo(() => {

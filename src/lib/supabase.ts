@@ -18,9 +18,8 @@ function initClient(): SupabaseClient | null {
 export const supabase: SupabaseClient | null = initClient();
 export const isSupabaseEnabled = supabase !== null;
 
-if (process.env.NODE_ENV === 'development') {
-  console.log('[Supabase] configured:', isSupabaseEnabled, '| url:', url ?? '(missing)', '| key prefix:', anonKey ? anonKey.slice(0, 20) + '...' : '(missing)');
-}
+// Always log so we can debug production issues via browser console
+console.log('[Supabase] configured:', isSupabaseEnabled, '| url:', url ?? '(missing)', '| key prefix:', anonKey ? anonKey.slice(0, 20) + '...' : '(missing)');
 
 // ── DB row types ──────────────────────────────────────────────────────────────
 

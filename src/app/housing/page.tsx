@@ -5,18 +5,35 @@ import { HOUSING } from '@/lib/data';
 import HousingCard from '@/components/cards/HousingCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
+import { useListings } from '@/lib/listings-context';
+import { Housing } from '@/lib/types';
 
 export default function HousingPage() {
   const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
+  const { activeListings } = useListings();
   const [search, setSearch] = useState('');
   const [listingType, setListingType] = useState<'all' | 'rent' | 'sale'>('all');
   const [maxPrice, setMaxPrice] = useState('');
   const [minBeds, setMinBeds] = useState('0');
   const [petFriendly, setPetFriendly] = useState(false);
 
+  const userHousing = useMemo(
+    () => activeListings.filter((l) => l.type === 'housing').map((l) => l.data as Housing),
+    [activeListings]
+  );
+
+  const allHousing = useMemo(
+    () => {
+      const staticIds = new Set(HOUSING.map((h) => h.id));
+      const newOnes = userHousing.filter((h) => !staticIds.has(h.id));
+      return [...HOUSING, ...newOnes];
+    },
+    [userHousing]
+  );
+
   const byCity = useMemo(
-    () => HOUSING.filter((h) => h.city.toLowerCase() === selectedCity.toLowerCase()),
-    [selectedCity]
+    () => allHousing.filter((h) => h.city.toLowerCase() === selectedCity.toLowerCase()),
+    [allHousing, selectedCity]
   );
 
   const filtered = useMemo(() => {

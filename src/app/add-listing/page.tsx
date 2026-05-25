@@ -52,18 +52,23 @@ export default function AddListingPage() {
     e.preventDefault();
     if (!form.title?.trim()) return;
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 600));
-    const data = buildListingData(type, form, user.id, user.name);
-    addListing({
-      publishedBy: user.id,
-      publishedByName: user.name,
-      publishedByEmail: user.email,
-      type,
-      data,
-    });
-    addToast({ type: 'success', message: t('addListing', 'listingCreated') });
-    setSubmitting(false);
-    router.push('/profile');
+    try {
+      const data = buildListingData(type, form, user.id, user.name);
+      await addListing({
+        publishedBy: user.id,
+        publishedByName: user.name,
+        publishedByEmail: user.email,
+        type,
+        data,
+      });
+      addToast({ type: 'success', message: t('addListing', 'listingCreated') });
+      router.push('/profile');
+    } catch (err) {
+      console.error('[AddListing] failed:', err);
+      addToast({ type: 'error', message: 'Failed to publish listing. Please try again.' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const selectStyle = `${INPUT} bg-transparent`;

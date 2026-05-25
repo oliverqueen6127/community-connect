@@ -10,6 +10,8 @@ import { BUSINESSES, EVENTS, US_CITIES } from '@/lib/data';
 import { useApp } from '@/lib/context';
 import { useLanguage } from '@/lib/language-context';
 import LocationPicker from '@/components/ui/LocationPicker';
+import { useListings } from '@/lib/listings-context';
+import { Business, Event } from '@/lib/types';
 
 function StatCard({ value, label, icon }: { value: string; label: string; icon: string }) {
   return (
@@ -20,18 +22,49 @@ function StatCard({ value, label, icon }: { value: string; label: string; icon: 
   );
 }
 
+const TYPE_EMOJI: Record<string, string> = { business: '🏪', event: '🎉', housing: '🏠', job: '💼' };
+const TYPE_HREF: Record<string, string> = { business: '/directory', event: '/events', housing: '/housing', job: '/jobs' };
+
 export default function HomePage() {
   const { selectedCity, setSelectedCity, setSelectedState } = useApp();
   const { t } = useLanguage();
+  const { activeListings } = useListings();
+
+  const userBusinesses = useMemo(
+    () => activeListings.filter((l) => l.type === 'business').map((l) => l.data as Business),
+    [activeListings]
+  );
+
+  const userEvents = useMemo(
+    () => activeListings.filter((l) => l.type === 'event').map((l) => l.data as Event),
+    [activeListings]
+  );
+
+  const allBusinesses = useMemo(() => {
+    const staticIds = new Set(BUSINESSES.map((b) => b.id));
+    return [...BUSINESSES, ...userBusinesses.filter((b) => !staticIds.has(b.id))];
+  }, [userBusinesses]);
+
+  const allEvents = useMemo(() => {
+    const staticIds = new Set(EVENTS.map((e) => e.id));
+    return [...EVENTS, ...userEvents.filter((e) => !staticIds.has(e.id))];
+  }, [userEvents]);
 
   const featuredBusinesses = useMemo(
-    () => BUSINESSES.filter((b) => b.city.toLowerCase() === selectedCity.toLowerCase()).slice(0, 6),
-    [selectedCity]
+    () => allBusinesses.filter((b) => b.city.toLowerCase() === selectedCity.toLowerCase()).slice(0, 6),
+    [allBusinesses, selectedCity]
   );
 
   const upcomingEvents = useMemo(
-    () => EVENTS.filter((e) => e.city.toLowerCase() === selectedCity.toLowerCase()).slice(0, 4),
-    [selectedCity]
+    () => allEvents.filter((e) => e.city.toLowerCase() === selectedCity.toLowerCase()).slice(0, 4),
+    [allEvents, selectedCity]
+  );
+
+  const recentlyAdded = useMemo(
+    () => [...activeListings]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 6),
+    [activeListings]
   );
 
   return (
@@ -150,6 +183,44 @@ export default function HomePage() {
           </div>
         )}
       </section>
+
+      {/* RECENTLY ADDED */}
+      {recentlyAdded.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-black text-white">Recently Added</h2>
+              <p className="text-white/40 text-sm mt-1">
+                New listings from the community
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {recentlyAdded.map((listing) => {
+              const title = ('name' in listing.data ? listing.data.name as string : '') || ('title' in listing.data ? listing.data.title as string : '') || 'Untitled';
+              const href = TYPE_HREF[listing.type] || '/directory';
+              return (
+                <Link key={listing.id} href={href} className="glass-card border border-white/8 hover:border-[#00E38C]/30 rounded-2xl p-4 flex items-center gap-4 transition-all duration-300 group">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+                    style={{ background: 'linear-gradient(135deg, rgba(0,227,140,0.15), rgba(0,194,255,0.15))', border: '1px solid rgba(0,227,140,0.2)' }}>
+                    {TYPE_EMOJI[listing.type]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-white text-sm truncate group-hover:text-[#00E38C] transition-colors">{title}</p>
+                    <p className="text-xs text-white/40 mt-0.5">{listing.data.city}, {listing.data.state}</p>
+                    <p className="text-xs text-white/20 mt-0.5">
+                      {new Date(listing.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold px-2 py-1 rounded-full bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20 capitalize flex-shrink-0">
+                    {listing.type}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* UPCOMING EVENTS */}
       <section className="py-10">

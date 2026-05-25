@@ -5,18 +5,35 @@ import { EVENTS } from '@/lib/data';
 import EventCard from '@/components/cards/EventCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
+import { useListings } from '@/lib/listings-context';
+import { Event } from '@/lib/types';
 
 const CATEGORIES = ['All', 'fundraiser', 'religious', 'food', 'education', 'community', 'sports', 'business'];
 
 export default function EventsPage() {
   const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
+  const { activeListings } = useListings();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [showFree, setShowFree] = useState(false);
 
+  const userEvents = useMemo(
+    () => activeListings.filter((l) => l.type === 'event').map((l) => l.data as Event),
+    [activeListings]
+  );
+
+  const allEvents = useMemo(
+    () => {
+      const staticIds = new Set(EVENTS.map((e) => e.id));
+      const newOnes = userEvents.filter((e) => !staticIds.has(e.id));
+      return [...EVENTS, ...newOnes];
+    },
+    [userEvents]
+  );
+
   const byCity = useMemo(
-    () => EVENTS.filter((e) => e.city.toLowerCase() === selectedCity.toLowerCase()),
-    [selectedCity]
+    () => allEvents.filter((e) => e.city.toLowerCase() === selectedCity.toLowerCase()),
+    [allEvents, selectedCity]
   );
 
   const filtered = useMemo(() => {
