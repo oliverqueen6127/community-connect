@@ -256,19 +256,37 @@ function saveCache(data: UserListing[]) {
 
 // ── Supabase query ─────────────────────────────────────────────────────────────
 // Fetches ALL active listings (visible to public) + owner's pending ones.
-// Admins get everything with no status filter.
-// The userRef param avoids stale closure — always reads current user.
+// Admins get everything via the service-key API route; anon client used for regular users.
 
 async function querySupabase(
   userId: string | undefined,
   isAdmin: boolean,
 ): Promise<UserListing[]> {
+  // Admin: use service-key API route so RLS doesn't block reads
+  if (isAdmin) {
+    console.log('[Listings] querySupabase | admin path → /api/admin-listing');
+    try {
+      const res = await fetch('/api/admin-listing');
+      if (!res.ok) {
+        console.error('[Listings] admin GET failed:', res.status, res.statusText);
+        return [];
+      }
+      const { items } = await res.json() as { items: Array<{ type: ListingType; rows: Record<string, unknown>[] }> };
+      const all = (items ?? []).flatMap(({ type, rows }) => rows.map((r) => rowToUserListing(r, type)));
+      console.log('[Listings] admin fetched total:', all.length);
+      return all;
+    } catch (err) {
+      console.error('[Listings] admin fetch error:', err);
+      return [];
+    }
+  }
+
   if (!isSupabaseEnabled || !supabase) {
     console.log('[Listings] Supabase not configured — returning empty');
     return [];
   }
 
-  console.log('[Listings] querySupabase | userId:', userId ?? 'anon', '| isAdmin:', isAdmin);
+  console.log('[Listings] querySupabase | userId:', userId ?? 'anon');
 
   const tables: DbTable[] = ['businesses', 'events', 'housing', 'jobs'];
   const types: ListingType[] = ['business', 'event', 'housing', 'job'];
@@ -276,20 +294,7 @@ async function querySupabase(
   const results = await Promise.all(
     tables.map(async (table, i) => {
       try {
-        if (isAdmin) {
-          const { data, error } = await supabase!
-            .from(table)
-            .select('*')
-            .order('created_at', { ascending: false });
-          if (error) {
-            console.error(`[Listings] admin fetch ${table} error:`, error.code, error.message);
-            return [];
-          }
-          console.log(`[Listings] ${table} (admin): ${data?.length ?? 0} rows`);
-          return (data || []).map((r) => rowToUserListing(r as Record<string, unknown>, types[i]));
-        }
-
-        // Non-admin: fetch all active rows (public read policy required in Supabase RLS)
+        // Fetch all active rows (public read policy required in Supabase RLS)
         const { data: active, error: activeErr } = await supabase!
           .from(table)
           .select('*')
@@ -349,14 +354,14 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
   // Stable fetch — reads from userRef, never recreated, no stale-closure risk.
   const doFetch = useCallback(async (): Promise<UserListing[]> => {
     const u = userRef.current;
+    const isAdmin = u?.id === 'mock-admin-1';
     const isRealUser = u && !u.id.startsWith('mock-');
-    const isAdmin = u?.role === 'admin';
     const userId = isRealUser ? u.id : undefined;
-    return querySupabase(userId, isAdmin ?? false);
+    return querySupabase(userId, isAdmin);
   }, []); // intentionally empty deps — userRef is the stable bridge
 
   // Apply fetched rows to state + cache.
-  // IMPORTANT: if Supabase returns 0 rows (e.g. missing SELECT RLS policy),
+  // IMPORTANT: if the API/Supabase returns 0 rows (e.g. missing SELECT RLS policy),
   // we do NOT overwrite existing state so optimistic items are preserved.
   const applyFetch = useCallback(async () => {
     const all = await doFetch();
@@ -372,7 +377,6 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     setIsLoading(true);
 
-<<<<<<< HEAD
     if (!isSupabaseEnabled || !supabase) {
       // Supabase not configured — fall back to localStorage cache
       setUserListings(loadCache());
@@ -421,79 +425,6 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
         (p) => onEvent('jobs', p.eventType))
       .subscribe((status, err) => {
         console.log('[Listings] Realtime status:', status, err ?? '');
-=======
-      try {
-        // Admin uses service-key API route to see all listings
-        if (user?.id === 'mock-admin-1') {
-          const res = await fetch('/api/admin-listing');
-          if (res.ok) {
-            const { items } = await res.json() as { items: Array<{ type: ListingType; rows: Record<string, unknown>[] }> };
-            const all = items.flatMap(({ type, rows }) => rows.map((row) => rowToUserListing(row, type)));
-            if (all.length > 0) {
-              setUserListings(all);
-              save(all);
-            }
-          }
-          return;
-        }
-
-        // Regular Supabase users see only their own listings
-        const isRealUser = user && !user.id.startsWith('mock-');
-        if (!isSupabaseEnabled || !supabase || !isRealUser) return;
-
-        const tables: DbTable[] = ['businesses', 'events', 'housing', 'jobs'];
-        const types: ListingType[] = ['business', 'event', 'housing', 'job'];
-
-        const results = await Promise.all(
-          tables.map(async (table, i) => {
-            const { data } = await supabase!
-              .from(table)
-              .select('*')
-              .eq('owner_id', user.id)
-              .order('created_at', { ascending: false });
-            return (data || []).map((row) => rowToUserListing(row as Record<string, unknown>, types[i]));
-          })
-        );
-
-        const all = results.flat();
-        if (all.length > 0) {
-          setUserListings(all);
-          save(all);
-        }
-      } catch { /* keep localStorage state on error */ }
-    };
-
-    init();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
-
-  const addListing = useCallback((listing: Omit<UserListing, 'id' | 'createdAt' | 'status'>) => {
-    const id = genId();
-    const newListing: UserListing = {
-      ...listing,
-      id,
-      createdAt: new Date().toISOString(),
-      status: 'active',
-    };
-    setUserListings((prev) => {
-      const updated = [newListing, ...prev];
-      save(updated);
-      return updated;
-    });
-
-    // Admin uses service-key API route
-    if (listing.publishedBy === 'mock-admin-1') {
-      fetch('/api/admin-listing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: listing.type, row: listingToDbRow(id, listing) }),
-      }).then((r) => { if (!r.ok) console.error('[Listings] Admin insert failed'); });
-    } else if (isSupabaseEnabled && supabase && !listing.publishedBy.startsWith('mock-')) {
-      // Regular Supabase users
-      const table = getTable(listing.type);
-      supabase.from(table).insert(listingToDbRow(id, listing)).then(({ error }) => {
-        if (error) console.error('[Listings] Supabase insert failed:', error.message);
->>>>>>> de3d26a (supabase v4)
       });
 
     return () => { supabase!.removeChannel(channel); };
@@ -507,50 +438,61 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
     };
 
     const u = userRef.current;
+    const isAdminUser = listing.publishedBy === 'mock-admin-1';
     const isRealUser = listing.publishedBy && !listing.publishedBy.startsWith('mock-');
 
-    // ── Required debug logs ────────────────────────────────────────────────
     console.log('CURRENT USER', u);
     console.log('USER ID', u?.id);
-    console.log('[addListing] isSupabaseEnabled:', isSupabaseEnabled, '| isRealUser:', isRealUser);
+    console.log('[addListing] isSupabaseEnabled:', isSupabaseEnabled, '| isAdminUser:', isAdminUser, '| isRealUser:', isRealUser);
 
-    if (isSupabaseEnabled && supabase && isRealUser) {
+    if (isAdminUser) {
+      // Admin has no Supabase JWT — use service-key API route for INSERT
+      const row = listingToDbRow(id, listing);
+      console.log('ADMIN API PAYLOAD', { type: listing.type, row });
+
+      // Optimistic update first so the UI reflects immediately
+      setUserListings((prev) => { const u2 = [optimistic, ...prev]; saveCache(u2); return u2; });
+
+      const res = await fetch('/api/admin-listing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: listing.type, row }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({})) as { error?: string };
+        console.error('ADMIN API INSERT ERROR', errBody.error ?? res.statusText);
+        throw new Error(errBody.error ?? 'Admin listing insert failed');
+      }
+
+      console.log('ADMIN API INSERT DATA success — table:', getTable(listing.type));
+
+    } else if (isSupabaseEnabled && supabase && isRealUser) {
       const table = getTable(listing.type);
       const payload = listingToDbRow(id, listing);
 
       console.log('TABLE', table);
       console.log('PAYLOAD', payload);
 
-      // ── BUG FIX: do NOT chain .select().single() after insert.
-      // .select().single() requires a SELECT RLS policy; without one it returns
-      // PGRST116 even though the INSERT succeeded, making the code think it failed.
-      // Plain .insert() returns only {error} — success when error is null.
+      // Plain .insert() — do NOT chain .select().single() which requires a SELECT RLS policy.
       const { error } = await supabase.from(table).insert(payload);
 
       console.log('INSERT ERROR', error);
 
       if (error) {
-        // Surface the real error so the UI can display it
         console.error('[addListing] INSERT failed:', error.code, error.message, error.details, error.hint);
         throw new Error(`Insert failed (${error.code}): ${error.message}${error.hint ? ' — ' + error.hint : ''}`);
       }
 
       console.log('INSERT RESULT', 'success — row written to Supabase table:', table);
 
-      // Optimistic update: show the listing immediately on this device.
-      // Realtime will propagate the INSERT to all other connected clients automatically.
+      // Optimistic update; Realtime propagates the INSERT to other clients automatically.
       // We do NOT call applyFetch() here because if there is no SELECT RLS policy,
       // applyFetch would return [] and wipe the optimistic item from state + cache.
       setUserListings((prev) => { const u2 = [optimistic, ...prev]; saveCache(u2); return u2; });
 
-    } else if (!isSupabaseEnabled || !supabase) {
-      // Supabase not configured
-      console.warn('[addListing] Supabase not configured — saving to localStorage only');
-      setUserListings((prev) => { const u2 = [optimistic, ...prev]; saveCache(u2); return u2; });
-
     } else {
-      // Mock/admin user: no Supabase JWT → INSERT would fail RLS anyway
-      console.warn('[addListing] Mock or admin user (no Supabase JWT) — saving to localStorage only. USER ID:', listing.publishedBy);
+      console.warn('[addListing] Supabase not configured — saving to localStorage only');
       setUserListings((prev) => { const u2 = [optimistic, ...prev]; saveCache(u2); return u2; });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -563,13 +505,6 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
       const updated = prev.filter((l) => l.id !== id);
       saveCache(updated);
 
-<<<<<<< HEAD
-      if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
-        supabase.from(getTable(listing.type)).delete().eq('id', id)
-          .then(({ error }) => {
-            if (error) console.error('[deleteListing] error:', error.message);
-          });
-=======
       if (listing?.publishedBy === 'mock-admin-1') {
         fetch('/api/admin-listing', {
           method: 'DELETE',
@@ -577,9 +512,12 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
           body: JSON.stringify({ type: listing.type, id }),
         }).then((r) => { if (!r.ok) console.error('[Listings] Admin delete failed'); });
       } else if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
-        supabase.from(getTable(listing.type)).delete().eq('id', id).then(() => {});
->>>>>>> de3d26a (supabase v4)
+        supabase.from(getTable(listing.type)).delete().eq('id', id)
+          .then(({ error }) => {
+            if (error) console.error('[deleteListing] error:', error.message);
+          });
       }
+
       return updated;
     });
   }, []);

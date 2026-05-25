@@ -75,9 +75,7 @@ export default function AdminPage() {
     }
   }, [user, isLoading, router]);
 
-<<<<<<< HEAD
   // ── Merge static seed data with user-submitted Supabase listings ───────────
-  // Admin sees EVERYTHING: mock seed data + all user-submitted rows from Supabase.
   const supabaseBusinesses = useMemo(
     () => userListings.filter((l) => l.type === 'business').map((l) => l.data as Business),
     [userListings],
@@ -115,10 +113,7 @@ export default function AdminPage() {
     return [...JOBS, ...supabaseJobs.filter((j) => !ids.has(j.id))];
   }, [supabaseJobs]);
 
-  if (isLoading || !user || user.role !== 'admin') {
-=======
   if (isLoading || !user || user.role !== 'admin' || user.id !== 'mock-admin-1') {
->>>>>>> de3d26a (supabase v4)
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-12 h-12 rounded-2xl animate-pulse" style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }} />

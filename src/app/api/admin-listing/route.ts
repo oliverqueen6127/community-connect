@@ -14,7 +14,12 @@ const TABLE_MAP: Record<ListingType, DbTable> = {
 function getServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_KEY;
-  if (!url || !serviceKey) return null;
+
+  if (!url || !serviceKey) {
+    console.error('ADMIN API INSERT ERROR: SUPABASE_SERVICE_KEY missing in server environment');
+    return null;
+  }
+
   return createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
@@ -23,7 +28,10 @@ function getServiceClient() {
 export async function GET() {
   const supabase = getServiceClient();
   if (!supabase) {
-    return NextResponse.json({ items: [] });
+    return NextResponse.json(
+      { error: 'SUPABASE_SERVICE_KEY missing in server environment', items: [] },
+      { status: 503 },
+    );
   }
 
   const entries: Array<{ type: ListingType; rows: Record<string, unknown>[] }> = [];
@@ -36,8 +44,10 @@ export async function GET() {
         .from(table)
         .select('*')
         .order('created_at', { ascending: false });
-      if (!error && data) {
-        entries.push({ type, rows: data as Record<string, unknown>[] });
+      if (error) {
+        console.error(`[admin-listing] GET ${table} error:`, error.message);
+      } else {
+        entries.push({ type, rows: (data ?? []) as Record<string, unknown>[] });
       }
     })
   );
@@ -48,41 +58,58 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const supabase = getServiceClient();
   if (!supabase) {
-    return NextResponse.json({ error: 'Service key not configured.' }, { status: 503 });
+    return NextResponse.json(
+      { error: 'SUPABASE_SERVICE_KEY missing in server environment' },
+      { status: 503 },
+    );
   }
 
   const body = await req.json() as { type?: unknown; row?: unknown };
   const { type, row } = body;
 
   if (typeof type !== 'string' || !TABLE_MAP[type as ListingType] || !row || typeof row !== 'object') {
-    return NextResponse.json({ error: 'Bad request.' }, { status: 400 });
+    return NextResponse.json({ error: 'Bad request — missing type or row.' }, { status: 400 });
   }
 
   const table = TABLE_MAP[type as ListingType];
+  console.log('ADMIN API PAYLOAD', { type, table, row });
+  console.log('ADMIN API INSERT DATA', row);
+
   const { error } = await supabase.from(table).insert(row);
+
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('ADMIN API INSERT ERROR', error.code, error.message, error.details);
+    return NextResponse.json(
+      { error: `${error.code}: ${error.message}${error.hint ? ' — ' + error.hint : ''}` },
+      { status: 500 },
+    );
   }
 
+  console.log('ADMIN API INSERT DATA success — table:', table);
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
   const supabase = getServiceClient();
   if (!supabase) {
-    return NextResponse.json({ error: 'Service key not configured.' }, { status: 503 });
+    return NextResponse.json(
+      { error: 'SUPABASE_SERVICE_KEY missing in server environment' },
+      { status: 503 },
+    );
   }
 
   const body = await req.json() as { type?: unknown; id?: unknown };
   const { type, id } = body;
 
   if (typeof type !== 'string' || !TABLE_MAP[type as ListingType] || typeof id !== 'string') {
-    return NextResponse.json({ error: 'Bad request.' }, { status: 400 });
+    return NextResponse.json({ error: 'Bad request — missing type or id.' }, { status: 400 });
   }
 
   const table = TABLE_MAP[type as ListingType];
   const { error } = await supabase.from(table).delete().eq('id', id);
+
   if (error) {
+    console.error('[admin-listing] DELETE error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
