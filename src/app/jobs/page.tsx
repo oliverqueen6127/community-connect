@@ -6,12 +6,14 @@ import JobCard from '@/components/cards/JobCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
 import { useListings } from '@/lib/listings-context';
+import { useFavorites } from '@/lib/favorites-context';
 import { Job } from '@/lib/types';
 
 const CATEGORIES = ['All', 'technology', 'food service', 'education', 'healthcare', 'marketing', 'delivery', 'warehouse', 'design'];
 
 export default function JobsPage() {
-  const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
+  const { selectedCity, selectedState } = useApp();
+  const { toggleSaved, isSaved } = useFavorites();
   const { activeListings } = useListings();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');

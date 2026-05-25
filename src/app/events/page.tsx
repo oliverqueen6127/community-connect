@@ -6,12 +6,14 @@ import EventCard from '@/components/cards/EventCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
 import { useListings } from '@/lib/listings-context';
+import { useFavorites } from '@/lib/favorites-context';
 import { Event } from '@/lib/types';
 
 const CATEGORIES = ['All', 'fundraiser', 'religious', 'food', 'education', 'community', 'sports', 'business'];
 
 export default function EventsPage() {
-  const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
+  const { selectedCity, selectedState } = useApp();
+  const { toggleSaved, isSaved } = useFavorites();
   const { activeListings } = useListings();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');

@@ -4,6 +4,7 @@ import { AppProvider } from '@/lib/context';
 import { LanguageProvider } from '@/lib/language-context';
 import { MessagesProvider } from '@/lib/messages-context';
 import { ListingsProvider } from '@/lib/listings-context';
+import { FavoritesProvider } from '@/lib/favorites-context';
 import Header from '@/components/layout/Header';
 import Sidebar from '@/components/layout/Sidebar';
 import ToastContainer from '@/components/ui/Toast';
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <LanguageProvider>
             <MessagesProvider>
               <ListingsProvider>
+                <FavoritesProvider>
                 {/* Aurora background — fixed, behind everything */}
                 <AuroraBackground />
 
@@ -56,6 +58,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
                 <ToastContainer />
                 <SupportChat />
+                </FavoritesProvider>
               </ListingsProvider>
             </MessagesProvider>
           </LanguageProvider>

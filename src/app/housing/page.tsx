@@ -6,10 +6,12 @@ import HousingCard from '@/components/cards/HousingCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
 import { useListings } from '@/lib/listings-context';
+import { useFavorites } from '@/lib/favorites-context';
 import { Housing } from '@/lib/types';
 
 export default function HousingPage() {
-  const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
+  const { selectedCity, selectedState } = useApp();
+  const { toggleSaved, isSaved } = useFavorites();
   const { activeListings } = useListings();
   const [search, setSearch] = useState('');
   const [listingType, setListingType] = useState<'all' | 'rent' | 'sale'>('all');

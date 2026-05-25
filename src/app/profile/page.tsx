@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/context';
+import { useFavorites } from '@/lib/favorites-context';
 import { useMessages } from '@/lib/messages-context';
 import { useListings } from '@/lib/listings-context';
 import { useLanguage } from '@/lib/language-context';
@@ -53,7 +54,8 @@ function formatDate(iso: string) {
 }
 
 export default function ProfilePage() {
-  const { user, isLoading, isSaved, toggleSaved, logout } = useApp();
+  const { user, isLoading, logout } = useApp();
+  const { isSaved, toggleSaved, favoritesCount } = useFavorites();
   const { userMessages, supportMessages, replies, unreadUserCount, unreadReplyCount, markReplyRead, sendUserReply } = useMessages();
   const { getListingsByUser, deleteListing } = useListings();
   const { t } = useLanguage();
@@ -86,7 +88,7 @@ export default function ProfilePage() {
   const savedEvents = EVENTS.filter((e) => isSaved('events', e.id));
   const savedHousing = HOUSING.filter((h) => isSaved('housing', h.id));
   const savedJobs = JOBS.filter((j) => isSaved('jobs', j.id));
-  const totalSaved = savedBusinesses.length + savedEvents.length + savedHousing.length + savedJobs.length;
+  const totalSaved = favoritesCount;
 
   const myListings = getListingsByUser(user.id);
   const myMessages = userMessages.filter((m) => m.fromUserId === user.id || m.toUserId === user.id);

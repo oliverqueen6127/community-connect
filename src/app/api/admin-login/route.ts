@@ -24,15 +24,11 @@ export async function POST(req: NextRequest) {
       username.toLowerCase().trim() === adminUsername.toLowerCase() &&
       password === adminPassword
     ) {
-      const adminUser: Omit<User, 'createdAt'> & { createdAt: string } = {
+      const adminUser: User = {
         id: 'mock-admin-1',
         name: 'Administrator',
         email: 'admin@communityconnect.local',
         role: 'admin',
-        savedBusinesses: [],
-        savedEvents: [],
-        savedHousing: [],
-        savedJobs: [],
         createdAt: new Date().toISOString(),
       };
 

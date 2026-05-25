@@ -6,12 +6,14 @@ import BusinessCard from '@/components/cards/BusinessCard';
 import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/lib/context';
 import { useListings } from '@/lib/listings-context';
+import { useFavorites } from '@/lib/favorites-context';
 import { Business } from '@/lib/types';
 
 const CATEGORIES = ['All', 'halal', 'restaurant', 'mosque', 'grocery', 'school', 'healthcare', 'retail', 'services'];
 
 export default function DirectoryPage() {
-  const { toggleSaved, isSaved, selectedCity, selectedState } = useApp();
+  const { selectedCity, selectedState } = useApp();
+  const { toggleSaved, isSaved } = useFavorites();
   const { activeListings } = useListings();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');

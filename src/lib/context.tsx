@@ -6,14 +6,6 @@ import { supabase, isSupabaseEnabled, DbProfile } from './supabase';
 
 const STORAGE_KEY = 'community-connect-user';
 
-
-const SAVED_KEY_MAP = {
-  businesses: 'savedBusinesses',
-  events: 'savedEvents',
-  housing: 'savedHousing',
-  jobs: 'savedJobs',
-} as const;
-
 function profileToUser(profile: DbProfile): User {
   return {
     id: profile.id,
@@ -21,10 +13,6 @@ function profileToUser(profile: DbProfile): User {
     name: profile.full_name || profile.email.split('@')[0],
     role: 'user',
     avatar: profile.avatar_url ?? undefined,
-    savedBusinesses: [],
-    savedEvents: [],
-    savedHousing: [],
-    savedJobs: [],
     createdAt: profile.created_at,
   };
 }
@@ -144,10 +132,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 email: sbData.user.email ?? adminUser.email,
                 name: adminUser.name,
                 role: 'admin' as const,
-                savedBusinesses: [],
-                savedEvents: [],
-                savedHousing: [],
-                savedJobs: [],
                 createdAt: sbData.user.created_at,
               });
               return;
@@ -193,10 +177,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               email: data.user.email ?? '',
               name: data.user.email?.split('@')[0] ?? 'User',
               role: 'user' as const,
-              savedBusinesses: [],
-              savedEvents: [],
-              savedHousing: [],
-              savedJobs: [],
               createdAt: data.user.created_at,
             };
 
@@ -240,62 +220,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const clearChat = useCallback(() => setChatMessages([]), []);
 
-  // ── Favorites ─────────────────────────────────────────────────────────────
-  const toggleSaved = useCallback(
-    async (type: 'businesses' | 'events' | 'housing' | 'jobs', id: string) => {
-      if (!user) {
-        addToast({ type: 'info', message: 'Connectez-vous pour sauvegarder des éléments.' });
-        return;
-      }
-
-      const key = SAVED_KEY_MAP[type] as keyof User;
-      const savedList = (user[key] as string[]) ?? [];
-      const isAlreadySaved = savedList.includes(id);
-
-      // Supabase favorites sync
-      if (isSupabaseEnabled && supabase && !user.id.startsWith('mock-')) {
-        const itemType = type.replace('s', '') as 'business' | 'event' | 'housing' | 'job';
-        if (isAlreadySaved) {
-          await supabase
-            .from('favorites')
-            .delete()
-            .eq('user_id', user.id)
-            .eq('item_id', id)
-            .eq('item_type', itemType);
-        } else {
-          await supabase
-            .from('favorites')
-            .insert({ user_id: user.id, item_id: id, item_type: itemType });
-        }
-      }
-
-      const updatedUser: User = {
-        ...user,
-        [key]: isAlreadySaved ? savedList.filter((sid) => sid !== id) : [...savedList, id],
-      };
-
-      setUser(updatedUser);
-      if (user.id.startsWith('mock-')) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
-      }
-
-      addToast({
-        type: 'success',
-        message: isAlreadySaved ? 'Retiré des favoris' : 'Ajouté aux favoris !',
-      });
-    },
-    [user, addToast]
-  );
-
-  const isSaved = useCallback(
-    (type: 'businesses' | 'events' | 'housing' | 'jobs', id: string): boolean => {
-      if (!user) return false;
-      const key = SAVED_KEY_MAP[type] as keyof User;
-      return ((user[key] as string[]) ?? []).includes(id);
-    },
-    [user]
-  );
-
   return (
     <AppContext.Provider
       value={{
@@ -311,8 +235,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         removeToast,
         addChatMessage,
         clearChat,
-        toggleSaved,
-        isSaved,
         login,
         logout,
       }}

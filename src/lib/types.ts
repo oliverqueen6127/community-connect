@@ -146,10 +146,6 @@ export interface User {
   name: string;
   avatar?: string;
   role: 'user' | 'admin';
-  savedBusinesses: string[];
-  savedEvents: string[];
-  savedHousing: string[];
-  savedJobs: string[];
   createdAt: string;
 }
 
@@ -225,8 +221,6 @@ export interface AppContextType {
   removeToast: (id: string) => void;
   addChatMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
   clearChat: () => void;
-  toggleSaved: (type: 'businesses' | 'events' | 'housing' | 'jobs', id: string) => void;
-  isSaved: (type: 'businesses' | 'events' | 'housing' | 'jobs', id: string) => boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
