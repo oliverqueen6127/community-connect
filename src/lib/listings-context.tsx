@@ -509,15 +509,38 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
       saveCache(updated);
 
       if (listing?.publishedBy === 'mock-admin-1') {
+        // Admin: service-key route handles DB delete + Storage cleanup
         fetch('/api/admin-listing', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: listing.type, id }),
         }).then((r) => { if (!r.ok) console.error('[Listings] Admin delete failed'); });
+
       } else if (isSupabaseEnabled && supabase && listing && !listing.publishedBy.startsWith('mock-')) {
         supabase.from(getTable(listing.type)).delete().eq('id', id)
           .then(({ error }) => {
-            if (error) console.error('[deleteListing] error:', error.message);
+            if (error) { console.error('[deleteListing] error:', error.message); return; }
+
+            // Delete Storage images that belong to our bucket
+            const imageUrls: string[] = [];
+            const data = listing.data;
+            if ('image' in data && typeof data.image === 'string' && data.image) imageUrls.push(data.image);
+            if ('logo' in data && typeof data.logo === 'string' && data.logo) imageUrls.push(data.logo);
+            if ('images' in data && Array.isArray(data.images)) {
+              for (const img of data.images as unknown[]) {
+                if (typeof img === 'string' && img) imageUrls.push(img);
+              }
+            }
+
+            const paths = imageUrls
+              .filter((url) => url.includes('/listing-images/'))
+              .map((url) => url.split('/listing-images/')[1])
+              .filter(Boolean);
+
+            if (paths.length > 0 && supabase) {
+              supabase.storage.from('listing-images').remove(paths)
+                .then(({ error: e }) => { if (e) console.error('[deleteListing] Storage delete error:', e.message); });
+            }
           });
       }
 

@@ -137,11 +137,42 @@ export async function DELETE(req: NextRequest) {
   }
 
   const table = TABLE_MAP[type as ListingType];
-  const { error } = await supabase.from(table).delete().eq('id', id);
 
+  // Fetch image URLs before deleting so we can clean up Storage
+  const { data: row } = await supabase
+    .from(table)
+    .select('image_url, logo_url, images')
+    .eq('id', id)
+    .maybeSingle();
+
+  // Delete the DB row
+  const { error } = await supabase.from(table).delete().eq('id', id);
   if (error) {
     console.error('[admin-listing] DELETE error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Delete Storage images that belong to our bucket
+  if (row) {
+    const imageUrls: string[] = [];
+    if (typeof row.image_url === 'string' && row.image_url) imageUrls.push(row.image_url);
+    if (typeof row.logo_url === 'string' && row.logo_url) imageUrls.push(row.logo_url);
+    if (Array.isArray(row.images)) {
+      for (const img of row.images as unknown[]) {
+        if (typeof img === 'string' && img) imageUrls.push(img);
+      }
+    }
+
+    const paths = imageUrls
+      .filter((url) => url.includes('/listing-images/'))
+      .map((url) => url.split('/listing-images/')[1])
+      .filter(Boolean);
+
+    if (paths.length > 0) {
+      const { error: storageErr } = await supabase.storage.from('listing-images').remove(paths);
+      if (storageErr) console.error('[admin-listing] Storage delete error:', storageErr.message);
+      else console.log('[admin-listing] deleted Storage images:', paths);
+    }
   }
 
   return NextResponse.json({ ok: true });

@@ -137,6 +137,19 @@ export default function HamburgerMenu({ isOpen, onClose }: HamburgerMenuProps) {
             <span>{t('nav', 'addListing')}</span>
           </Link>
 
+          {user && user.role !== 'admin' && (
+            <Link
+              href="/profile"
+              onClick={onClose}
+              className={`sidebar-link ${pathname === '/profile' ? 'active' : ''}`}
+            >
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>My Dashboard</span>
+            </Link>
+          )}
+
           {user?.role === 'admin' && (
             <Link
               href="/admin"
