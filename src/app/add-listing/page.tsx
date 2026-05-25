@@ -52,20 +52,30 @@ export default function AddListingPage() {
     e.preventDefault();
     if (!form.title?.trim()) return;
     setSubmitting(true);
+
+    console.log('CURRENT USER', user);
+    console.log('USER ID', user?.id);
+
     try {
-      const data = buildListingData(type, form, user.id, user.name);
+      const listingData = buildListingData(type, form, user.id, user.name);
+      console.log('TABLE', type === 'business' ? 'businesses' : type === 'event' ? 'events' : type === 'housing' ? 'housing' : 'jobs');
+      console.log('PAYLOAD (frontend object)', listingData);
+
       await addListing({
         publishedBy: user.id,
         publishedByName: user.name,
         publishedByEmail: user.email,
         type,
-        data,
+        data: listingData,
       });
+
       addToast({ type: 'success', message: t('addListing', 'listingCreated') });
       router.push('/profile');
     } catch (err) {
-      console.error('[AddListing] failed:', err);
-      addToast({ type: 'error', message: 'Failed to publish listing. Please try again.' });
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[AddListing] FAILED:', msg);
+      // Show the real Supabase error in the UI so the user can report it
+      addToast({ type: 'error', message: `Listing not saved: ${msg}` });
     } finally {
       setSubmitting(false);
     }

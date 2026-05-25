@@ -35,7 +35,12 @@ export async function POST(req: NextRequest) {
         savedJobs: [],
         createdAt: new Date().toISOString(),
       };
-      return NextResponse.json({ user: adminUser });
+
+      // If ADMIN_SUPABASE_EMAIL is set, pass it to the client so it can get
+      // a real Supabase JWT — required for Supabase RLS INSERT/SELECT policies.
+      const supabaseEmail = process.env.ADMIN_SUPABASE_EMAIL ?? null;
+
+      return NextResponse.json({ user: adminUser, supabaseEmail });
     }
 
     return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });

@@ -355,11 +355,15 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
     return querySupabase(userId, isAdmin ?? false);
   }, []); // intentionally empty deps — userRef is the stable bridge
 
-  // Apply fetched rows to state + cache
+  // Apply fetched rows to state + cache.
+  // IMPORTANT: if Supabase returns 0 rows (e.g. missing SELECT RLS policy),
+  // we do NOT overwrite existing state so optimistic items are preserved.
   const applyFetch = useCallback(async () => {
     const all = await doFetch();
-    setUserListings(all);
-    saveCache(all);
+    if (all.length > 0) {
+      setUserListings(all);
+      saveCache(all);
+    }
     return all;
   }, [doFetch]);
 
@@ -428,33 +432,55 @@ export function ListingsProvider({ children }: { children: React.ReactNode }) {
       ...listing, id, createdAt: new Date().toISOString(), status: 'active',
     };
 
+    const u = userRef.current;
     const isRealUser = listing.publishedBy && !listing.publishedBy.startsWith('mock-');
-    console.log('[addListing] Supabase enabled:', isSupabaseEnabled,
-      '| user id:', listing.publishedBy, '| isRealUser:', isRealUser);
+
+    // ── Required debug logs ────────────────────────────────────────────────
+    console.log('CURRENT USER', u);
+    console.log('USER ID', u?.id);
+    console.log('[addListing] isSupabaseEnabled:', isSupabaseEnabled, '| isRealUser:', isRealUser);
 
     if (isSupabaseEnabled && supabase && isRealUser) {
       const table = getTable(listing.type);
-      const row = listingToDbRow(id, listing);
-      console.log('[addListing] inserting into table:', table, '| id:', id);
+      const payload = listingToDbRow(id, listing);
 
-      const { data, error } = await supabase.from(table).insert(row).select().single();
+      console.log('TABLE', table);
+      console.log('PAYLOAD', payload);
+
+      // ── BUG FIX: do NOT chain .select().single() after insert.
+      // .select().single() requires a SELECT RLS policy; without one it returns
+      // PGRST116 even though the INSERT succeeded, making the code think it failed.
+      // Plain .insert() returns only {error} — success when error is null.
+      const { error } = await supabase.from(table).insert(payload);
+
+      console.log('INSERT ERROR', error);
 
       if (error) {
-        console.error('[addListing] INSERT failed:', error.code, error.message, error);
-        // Optimistic-only so user at least sees it immediately on their device
-        setUserListings((prev) => { const u = [optimistic, ...prev]; saveCache(u); return u; });
-      } else {
-        console.log('[addListing] INSERT success:', data);
-        // Add optimistically; Realtime will also trigger a full refetch on all clients
-        setUserListings((prev) => { const u = [optimistic, ...prev]; saveCache(u); return u; });
-        // Refetch on this client too so created_at etc. reflects server truth
-        applyFetch().catch(() => {});
+        // Surface the real error so the UI can display it
+        console.error('[addListing] INSERT failed:', error.code, error.message, error.details, error.hint);
+        throw new Error(`Insert failed (${error.code}): ${error.message}${error.hint ? ' — ' + error.hint : ''}`);
       }
+
+      console.log('INSERT RESULT', 'success — row written to Supabase table:', table);
+
+      // Optimistic update: show the listing immediately on this device.
+      // Realtime will propagate the INSERT to all other connected clients automatically.
+      // We do NOT call applyFetch() here because if there is no SELECT RLS policy,
+      // applyFetch would return [] and wipe the optimistic item from state + cache.
+      setUserListings((prev) => { const u2 = [optimistic, ...prev]; saveCache(u2); return u2; });
+
+    } else if (!isSupabaseEnabled || !supabase) {
+      // Supabase not configured
+      console.warn('[addListing] Supabase not configured — saving to localStorage only');
+      setUserListings((prev) => { const u2 = [optimistic, ...prev]; saveCache(u2); return u2; });
+
     } else {
-      // Mock user or no Supabase — localStorage only
-      setUserListings((prev) => { const u = [optimistic, ...prev]; saveCache(u); return u; });
+      // Mock/admin user: no Supabase JWT → INSERT would fail RLS anyway
+      console.warn('[addListing] Mock or admin user (no Supabase JWT) — saving to localStorage only. USER ID:', listing.publishedBy);
+      setUserListings((prev) => { const u2 = [optimistic, ...prev]; saveCache(u2); return u2; });
     }
-  }, [applyFetch]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── deleteListing ──────────────────────────────────────────────────────────
   const deleteListing = useCallback((id: string) => {

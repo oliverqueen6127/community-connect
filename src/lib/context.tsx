@@ -114,8 +114,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (res.ok) {
-        const { user: adminUser } = await res.json() as { user: User };
-        // Restore any saved favorites/state from a previous session
+        const { user: adminUser, supabaseEmail } = await res.json() as { user: User; supabaseEmail: string | null };
+
+        // If ADMIN_SUPABASE_EMAIL is configured, sign into Supabase to get a real JWT
+        // so that RLS policies (auth.uid() = owner_id) work for admin-created listings.
+        if (supabaseEmail && isSupabaseEnabled && supabase) {
+          try {
+            const { data: sbData } = await supabase.auth.signInWithPassword({
+              email: supabaseEmail,
+              password,
+            });
+            if (sbData?.user) {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', sbData.user.id)
+                .single<DbProfile>();
+              if (profile) {
+                setUser(profileToUser(profile));
+                return;
+              }
+              // Profile row not found — build user from auth data with admin role
+              setUser({
+                id: sbData.user.id,
+                email: sbData.user.email ?? adminUser.email,
+                name: adminUser.name,
+                role: 'admin' as const,
+                savedBusinesses: [],
+                savedEvents: [],
+                savedHousing: [],
+                savedJobs: [],
+                createdAt: sbData.user.created_at,
+              });
+              return;
+            }
+          } catch { /* Supabase sign-in failed — fall through to mock admin */ }
+        }
+
+        // Fallback: ADMIN_SUPABASE_EMAIL not set or Supabase sign-in failed — use mock admin
         let userData = { ...adminUser };
         try {
           const raw = localStorage.getItem(STORAGE_KEY);
