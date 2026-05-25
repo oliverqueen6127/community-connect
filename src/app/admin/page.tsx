@@ -92,7 +92,7 @@ const typeEmoji = (type: string) => type === 'business' ? '🏪' : type === 'eve
 
 export default function AdminPage() {
   const { user, isLoading, logout } = useApp();
-  const { supportMessages, userMessages, unreadSupportCount, markSupportMessageRead, deleteSupportMessage, sendSupportMessage } = useMessages();
+  const { supportMessages, unreadSupportCount, markSupportMessageRead, deleteSupportMessage, sendSupportMessage } = useMessages();
   const { userListings, deleteListing, approveListing, rejectListing, isLoading: listingsLoading } = useListings();
   const { t } = useLanguage();
   const router = useRouter();
