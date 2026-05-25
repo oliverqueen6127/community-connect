@@ -33,11 +33,11 @@ export interface DbProfile {
 }
 
 export interface DbFavorite {
-  id: string;
-  user_id: string;
-  item_id: string;
-  item_type: 'business' | 'event' | 'housing' | 'job';
-  created_at: string;
+  id:           string;
+  user_id:      string;
+  listing_id:   string;
+  listing_type: 'business' | 'event' | 'housing' | 'job';
+  created_at:   string;
 }
 
 export interface DbSupportMessage {

@@ -1,12 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/lib/context';
 import { useFavorites } from '@/lib/favorites-context';
+import { useListings } from '@/lib/listings-context';
 import { useLanguage } from '@/lib/language-context';
 import { BUSINESSES, EVENTS, HOUSING, JOBS } from '@/lib/data';
+import { Business, Event, Housing, Job } from '@/lib/types';
 import BusinessCard from '@/components/cards/BusinessCard';
 import EventCard from '@/components/cards/EventCard';
 import HousingCard from '@/components/cards/HousingCard';
@@ -14,13 +16,45 @@ import JobCard from '@/components/cards/JobCard';
 
 export default function FavoritesPage() {
   const { user, isLoading: authLoading } = useApp();
-  const { isSaved, toggleSaved, savedIds, favoritesCount, isLoading: favLoading } = useFavorites();
+  const { isSaved, toggleSaved, favoritesCount, isLoading: favLoading } = useFavorites();
+  const { activeListings } = useListings();
   const { t } = useLanguage();
   const router = useRouter();
 
   React.useEffect(() => {
     if (!authLoading && !user) router.push('/auth/login?redirect=/favorites');
   }, [user, authLoading, router]);
+
+  // Combine static data with user-created listings (same pattern as directory/events/etc.)
+  const allBusinesses = useMemo(() => {
+    const userBiz = activeListings.filter((l) => l.type === 'business').map((l) => l.data as Business);
+    const staticIds = new Set(BUSINESSES.map((b) => b.id));
+    return [...BUSINESSES, ...userBiz.filter((b) => !staticIds.has(b.id))];
+  }, [activeListings]);
+
+  const allEvents = useMemo(() => {
+    const userEvt = activeListings.filter((l) => l.type === 'event').map((l) => l.data as Event);
+    const staticIds = new Set(EVENTS.map((e) => e.id));
+    return [...EVENTS, ...userEvt.filter((e) => !staticIds.has(e.id))];
+  }, [activeListings]);
+
+  const allHousing = useMemo(() => {
+    const userHsg = activeListings.filter((l) => l.type === 'housing').map((l) => l.data as Housing);
+    const staticIds = new Set(HOUSING.map((h) => h.id));
+    return [...HOUSING, ...userHsg.filter((h) => !staticIds.has(h.id))];
+  }, [activeListings]);
+
+  const allJobs = useMemo(() => {
+    const userJob = activeListings.filter((l) => l.type === 'job').map((l) => l.data as Job);
+    const staticIds = new Set(JOBS.map((j) => j.id));
+    return [...JOBS, ...userJob.filter((j) => !staticIds.has(j.id))];
+  }, [activeListings]);
+
+  // Filter by saved state
+  const savedBusinesses = useMemo(() => allBusinesses.filter((b) => isSaved('businesses', b.id)), [allBusinesses, isSaved]);
+  const savedEvents     = useMemo(() => allEvents.filter((e)    => isSaved('events',     e.id)), [allEvents,     isSaved]);
+  const savedHousing    = useMemo(() => allHousing.filter((h)   => isSaved('housing',    h.id)), [allHousing,    isSaved]);
+  const savedJobs       = useMemo(() => allJobs.filter((j)       => isSaved('jobs',       j.id)), [allJobs,       isSaved]);
 
   if (authLoading || !user) {
     return (
@@ -30,7 +64,6 @@ export default function FavoritesPage() {
     );
   }
 
-  // Loading favorites from Supabase
   if (favLoading) {
     return (
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
@@ -47,25 +80,18 @@ export default function FavoritesPage() {
     );
   }
 
-  const savedBusinesses = BUSINESSES.filter((b) => isSaved('businesses', b.id));
-  const savedEvents     = EVENTS.filter((e)    => isSaved('events',     e.id));
-  const savedHousing    = HOUSING.filter((h)   => isSaved('housing',    h.id));
-  const savedJobs       = JOBS.filter((j)       => isSaved('jobs',       j.id));
-
-  // Also include any user-created listings that are favorited (by listing_id match)
-  // The Supabase IDs for user listings are UUIDs, static data IDs are strings like "business-1"
-  // The savedIds record has the full list from DB — cards render correctly via isSaved()
+  const total = savedBusinesses.length + savedEvents.length + savedHousing.length + savedJobs.length;
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 pt-8">
       <div className="mb-8">
         <h1 className="text-3xl font-black text-white">{t('favorites', 'title')}</h1>
         <p className="text-white/40 mt-1">
-          {favoritesCount} {favoritesCount === 1 ? 'item' : 'items'} saved
+          {favoritesCount} saved · {total} displayed
         </p>
       </div>
 
-      {favoritesCount === 0 ? (
+      {total === 0 ? (
         <div className="text-center py-20 rounded-3xl" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
           <div className="text-6xl mb-4" style={{ animation: 'float 3s ease-in-out infinite' }}>❤️</div>
           <h3 className="text-xl font-bold text-white mb-2">{t('favorites', 'noFavorites')}</h3>
@@ -84,7 +110,9 @@ export default function FavoritesPage() {
             <section>
               <h2 className="text-lg font-black text-white mb-4 flex items-center gap-2">
                 🏪 Businesses
-                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20">{savedBusinesses.length}</span>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#00E38C]/10 text-[#00E38C] border border-[#00E38C]/20">
+                  {savedBusinesses.length}
+                </span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {savedBusinesses.map((b) => (
@@ -98,7 +126,9 @@ export default function FavoritesPage() {
             <section>
               <h2 className="text-lg font-black text-white mb-4 flex items-center gap-2">
                 🎉 {t('nav', 'events')}
-                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#00C2FF]/10 text-[#00C2FF] border border-[#00C2FF]/20">{savedEvents.length}</span>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#00C2FF]/10 text-[#00C2FF] border border-[#00C2FF]/20">
+                  {savedEvents.length}
+                </span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {savedEvents.map((e) => (
@@ -112,7 +142,9 @@ export default function FavoritesPage() {
             <section>
               <h2 className="text-lg font-black text-white mb-4 flex items-center gap-2">
                 🏠 {t('nav', 'housing')}
-                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-white/5 text-white/50 border border-white/10">{savedHousing.length}</span>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-white/5 text-white/50 border border-white/10">
+                  {savedHousing.length}
+                </span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {savedHousing.map((h) => (
@@ -126,7 +158,9 @@ export default function FavoritesPage() {
             <section>
               <h2 className="text-lg font-black text-white mb-4 flex items-center gap-2">
                 💼 {t('nav', 'jobs')}
-                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">{savedJobs.length}</span>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                  {savedJobs.length}
+                </span>
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {savedJobs.map((j) => (
@@ -135,25 +169,6 @@ export default function FavoritesPage() {
               </div>
             </section>
           )}
-
-          {/* Any favorited items not in static data (user-created listings) */}
-          {(() => {
-            const staticBizIds  = new Set(BUSINESSES.map((b) => b.id));
-            const staticEvtIds  = new Set(EVENTS.map((e) => e.id));
-            const staticHsgIds  = new Set(HOUSING.map((h) => h.id));
-            const staticJobIds  = new Set(JOBS.map((j) => j.id));
-            const extraCount =
-              savedIds.businesses.filter((id) => !staticBizIds.has(id)).length +
-              savedIds.events.filter((id) => !staticEvtIds.has(id)).length +
-              savedIds.housing.filter((id) => !staticHsgIds.has(id)).length +
-              savedIds.jobs.filter((id) => !staticJobIds.has(id)).length;
-            if (extraCount === 0) return null;
-            return (
-              <p className="text-xs text-white/20 mt-2">
-                +{extraCount} user-created listing{extraCount !== 1 ? 's' : ''} saved (visible on their respective pages)
-              </p>
-            );
-          })()}
         </div>
       )}
     </div>

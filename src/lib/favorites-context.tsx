@@ -13,15 +13,15 @@ export type FavType = 'businesses' | 'events' | 'housing' | 'jobs';
 // DB stores singular listing_type; context uses plural FavType
 const TYPE_TO_DB: Record<FavType, string> = {
   businesses: 'business',
-  events: 'event',
-  housing: 'housing',
-  jobs: 'job',
+  events:     'event',
+  housing:    'housing',
+  jobs:       'job',
 };
 const DB_TO_TYPE: Record<string, FavType> = {
   business: 'businesses',
-  event: 'events',
-  housing: 'housing',
-  job: 'jobs',
+  event:    'events',
+  housing:  'housing',
+  job:      'jobs',
 };
 
 // Composite key for O(1) lookup: "business:listing-id"
@@ -32,11 +32,11 @@ function makeKey(dbType: string, listingId: string) {
 const MOCK_FAV_KEY = 'cc-favorites-mock';
 
 interface FavoritesContextType {
-  isSaved: (type: FavType, id: string) => boolean;
-  toggleSaved: (type: FavType, id: string) => Promise<void>;
+  isSaved:        (type: FavType, id: string) => boolean;
+  toggleSaved:    (type: FavType, id: string) => Promise<void>;
   favoritesCount: number;
-  savedIds: Record<FavType, string[]>;
-  isLoading: boolean;
+  savedIds:       Record<FavType, string[]>;
+  isLoading:      boolean;
 }
 
 const FavoritesContext = createContext<FavoritesContextType | undefined>(undefined);
@@ -46,11 +46,11 @@ const FavoritesContext = createContext<FavoritesContextType | undefined>(undefin
 export function FavoritesProvider({ children }: { children: React.ReactNode }) {
   const { user, addToast } = useApp();
 
-  // saved: composite-key → true  (e.g. "business:b-123": true)
+  // saved: composite-key → true  (e.g. "business:b1": true)
   const [saved, setSaved] = useState<Record<string, true>>({});
   const [isLoading, setIsLoading] = useState(false);
 
-  // Track keys we just wrote ourselves so Realtime events don't double-apply
+  // Track keys we just wrote ourselves so Realtime echo is ignored
   const pendingRef = useRef<Set<string>>(new Set());
 
   // ── Load favorites when user changes ────────────────────────────────────────
@@ -61,11 +61,11 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (user.id.startsWith('mock-')) {
-      // Mock user: load from localStorage
       try {
         const raw = localStorage.getItem(MOCK_FAV_KEY);
-        if (raw) setSaved(JSON.parse(raw) as Record<string, true>);
-        else setSaved({});
+        const parsed = raw ? (JSON.parse(raw) as Record<string, true>) : {};
+        console.log('[Favorites] mock-user load from localStorage:', parsed);
+        setSaved(parsed);
       } catch {
         setSaved({});
       }
@@ -77,18 +77,26 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Real Supabase user: fetch from DB
     setIsLoading(true);
+    console.log('[Favorites] fetching from Supabase for user:', user.id);
+
     supabase
       .from('favorites')
       .select('listing_id, listing_type')
       .eq('user_id', user.id)
       .then(({ data, error }) => {
-        if (error || !data) { setIsLoading(false); return; }
-        const next: Record<string, true> = {};
-        for (const row of data) {
-          next[makeKey(row.listing_type as string, row.listing_id as string)] = true;
+        console.log('[Favorites] SELECT result → data:', data, '| error:', error);
+        if (error) {
+          console.error('[Favorites] SELECT error:', error.message, error.details, error.hint);
+          setIsLoading(false);
+          return;
         }
+        const next: Record<string, true> = {};
+        for (const row of data ?? []) {
+          const key = makeKey(row.listing_type as string, row.listing_id as string);
+          next[key] = true;
+        }
+        console.log('[Favorites] built saved map:', next);
         setSaved(next);
         setIsLoading(false);
       });
@@ -146,9 +154,12 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const dbType = TYPE_TO_DB[type];
-      const key = makeKey(dbType, id);
+      const dbType  = TYPE_TO_DB[type];
+      const key     = makeKey(dbType, id);
       const alreadySaved = !!saved[key];
+
+      console.log('FAVORITE USER', user);
+      console.log('FAVORITE PAYLOAD', { listing_id: id, listing_type: dbType, user_id: user.id, alreadySaved });
 
       // Optimistic update
       setSaved((prev) => {
@@ -161,19 +172,17 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
       });
 
       addToast({
-        type: 'success',
+        type:    'success',
         message: alreadySaved ? 'Removed from favorites' : 'Added to favorites',
       });
 
-      // Persist
+      // ── Mock user: localStorage only ────────────────────────────────────────
       if (user.id.startsWith('mock-')) {
-        // Mock user: persist to localStorage
-        setSaved((prev) => {
-          const next = { ...prev };
-          if (alreadySaved) delete next[key]; else next[key] = true;
-          try { localStorage.setItem(MOCK_FAV_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-          return next;
-        });
+        const raw    = localStorage.getItem(MOCK_FAV_KEY);
+        const stored = raw ? (JSON.parse(raw) as Record<string, true>) : {};
+        if (alreadySaved) delete stored[key]; else stored[key] = true;
+        localStorage.setItem(MOCK_FAV_KEY, JSON.stringify(stored));
+        console.log('[Favorites] mock localStorage updated:', stored);
         return;
       }
 
@@ -182,31 +191,45 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
       // Mark as pending so Realtime echo is ignored
       pendingRef.current.add(key);
 
-      try {
-        if (alreadySaved) {
-          const { error } = await supabase
-            .from('favorites')
-            .delete()
-            .eq('user_id', user.id)
-            .eq('listing_id', id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase
-            .from('favorites')
-            .insert({ user_id: user.id, listing_id: id, listing_type: dbType });
-          if (error) throw error;
+      if (alreadySaved) {
+        // ── DELETE ────────────────────────────────────────────────────────────
+        const { data, error } = await supabase
+          .from('favorites')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('listing_id', id)
+          .select();
+
+        console.log('FAVORITE DELETE DATA',  data);
+        console.log('FAVORITE DELETE ERROR', error);
+
+        if (error) {
+          // Rollback
+          setSaved((prev) => ({ ...prev, [key]: true }));
+          pendingRef.current.delete(key);
+          addToast({ type: 'error', message: `Failed to remove favorite: ${error.message}` });
         }
-      } catch (err) {
-        // Rollback optimistic update
-        setSaved((prev) => {
-          if (alreadySaved) return { ...prev, [key]: true };
-          const next = { ...prev };
-          delete next[key];
-          return next;
-        });
-        pendingRef.current.delete(key);
-        const msg = err instanceof Error ? err.message : String(err);
-        addToast({ type: 'error', message: `Failed to update favorites: ${msg}` });
+      } else {
+        // ── INSERT ────────────────────────────────────────────────────────────
+        const { data, error } = await supabase
+          .from('favorites')
+          .insert({ user_id: user.id, listing_id: id, listing_type: dbType })
+          .select()
+          .single();
+
+        console.log('FAVORITE INSERT DATA',  data);
+        console.log('FAVORITE INSERT ERROR', error);
+
+        if (error) {
+          // Rollback
+          setSaved((prev) => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          });
+          pendingRef.current.delete(key);
+          addToast({ type: 'error', message: `Failed to save favorite: ${error.message}` });
+        }
       }
     },
     [user, saved, addToast]
@@ -215,15 +238,13 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
   // ── Derived values ──────────────────────────────────────────────────────────
   const favoritesCount = Object.keys(saved).length;
 
-  const savedIds: Record<FavType, string[]> = {
-    businesses: [], events: [], housing: [], jobs: [],
-  };
+  const savedIds: Record<FavType, string[]> = { businesses: [], events: [], housing: [], jobs: [] };
   for (const key of Object.keys(saved)) {
-    const sep = key.indexOf(':');
+    const sep     = key.indexOf(':');
     if (sep === -1) continue;
-    const dbType = key.slice(0, sep);
+    const dbType  = key.slice(0, sep);
     const listingId = key.slice(sep + 1);
-    const type = DB_TO_TYPE[dbType];
+    const type    = DB_TO_TYPE[dbType];
     if (type) savedIds[type].push(listingId);
   }
 

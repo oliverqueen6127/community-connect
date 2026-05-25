@@ -9,7 +9,7 @@ import { useMessages } from '@/lib/messages-context';
 import { useListings } from '@/lib/listings-context';
 import { useLanguage } from '@/lib/language-context';
 import { BUSINESSES, EVENTS, HOUSING, JOBS } from '@/lib/data';
-import { UserListing } from '@/lib/types';
+import { UserListing, Business, Event, Housing, Job } from '@/lib/types';
 import BusinessCard from '@/components/cards/BusinessCard';
 import EventCard from '@/components/cards/EventCard';
 import HousingCard from '@/components/cards/HousingCard';
@@ -57,7 +57,7 @@ export default function ProfilePage() {
   const { user, isLoading, logout } = useApp();
   const { isSaved, toggleSaved, favoritesCount } = useFavorites();
   const { userMessages, supportMessages, replies, unreadUserCount, unreadReplyCount, markReplyRead, sendUserReply } = useMessages();
-  const { getListingsByUser, deleteListing } = useListings();
+  const { getListingsByUser, deleteListing, activeListings } = useListings();
   const { t } = useLanguage();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('overview');
@@ -76,6 +76,28 @@ export default function ProfilePage() {
       .forEach((r) => markReplyRead(r.id));
   }, [tab, supportMessages, replies, markReplyRead]);
 
+  // Combine static + user-created listings (must be before any conditional return)
+  const allBusinesses = React.useMemo(() => {
+    const userBiz   = activeListings.filter((l) => l.type === 'business').map((l) => l.data as Business);
+    const staticIds = new Set(BUSINESSES.map((b) => b.id));
+    return [...BUSINESSES, ...userBiz.filter((b) => !staticIds.has(b.id))];
+  }, [activeListings]);
+  const allEvents = React.useMemo(() => {
+    const userEvt   = activeListings.filter((l) => l.type === 'event').map((l) => l.data as Event);
+    const staticIds = new Set(EVENTS.map((e) => e.id));
+    return [...EVENTS, ...userEvt.filter((e) => !staticIds.has(e.id))];
+  }, [activeListings]);
+  const allHousing = React.useMemo(() => {
+    const userHsg   = activeListings.filter((l) => l.type === 'housing').map((l) => l.data as Housing);
+    const staticIds = new Set(HOUSING.map((h) => h.id));
+    return [...HOUSING, ...userHsg.filter((h) => !staticIds.has(h.id))];
+  }, [activeListings]);
+  const allJobs = React.useMemo(() => {
+    const userJob   = activeListings.filter((l) => l.type === 'job').map((l) => l.data as Job);
+    const staticIds = new Set(JOBS.map((j) => j.id));
+    return [...JOBS, ...userJob.filter((j) => !staticIds.has(j.id))];
+  }, [activeListings]);
+
   if (isLoading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -84,11 +106,11 @@ export default function ProfilePage() {
     );
   }
 
-  const savedBusinesses = BUSINESSES.filter((b) => isSaved('businesses', b.id));
-  const savedEvents = EVENTS.filter((e) => isSaved('events', e.id));
-  const savedHousing = HOUSING.filter((h) => isSaved('housing', h.id));
-  const savedJobs = JOBS.filter((j) => isSaved('jobs', j.id));
-  const totalSaved = favoritesCount;
+  const savedBusinesses = allBusinesses.filter((b) => isSaved('businesses', b.id));
+  const savedEvents     = allEvents.filter((e)    => isSaved('events',     e.id));
+  const savedHousing    = allHousing.filter((h)   => isSaved('housing',    h.id));
+  const savedJobs       = allJobs.filter((j)       => isSaved('jobs',       j.id));
+  const totalSaved      = favoritesCount;
 
   const myListings = getListingsByUser(user.id);
   const myMessages = userMessages.filter((m) => m.fromUserId === user.id || m.toUserId === user.id);
