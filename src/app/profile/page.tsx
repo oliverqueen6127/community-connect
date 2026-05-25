@@ -29,7 +29,7 @@ function formatDate(iso: string) {
 
 export default function ProfilePage() {
   const { user, isLoading, isSaved, toggleSaved, logout } = useApp();
-  const { userMessages, unreadUserCount } = useMessages();
+  const { userMessages, supportMessages, replies, unreadUserCount, unreadReplyCount, markReplyRead } = useMessages();
   const { getListingsByUser, deleteListing } = useListings();
   const { t } = useLanguage();
   const router = useRouter();
@@ -56,12 +56,14 @@ export default function ProfilePage() {
   const myListings = getListingsByUser(user.id);
   const myMessages = userMessages.filter((m) => m.fromUserId === user.id || m.toUserId === user.id);
   const unread = unreadUserCount(user.id);
+  const totalMessages = myMessages.length + supportMessages.length;
+  const totalUnread = unread + unreadReplyCount;
 
   const TABS: { key: Tab; label: string; count?: number; badge?: number }[] = [
     { key: 'overview', label: t('profile', 'overview') },
     { key: 'favorites', label: t('profile', 'myFavorites'), count: totalSaved },
     { key: 'listings', label: t('profile', 'myListings'), count: myListings.length },
-    { key: 'messages', label: t('profile', 'myMessages'), count: myMessages.length, badge: unread },
+    { key: 'messages', label: t('profile', 'myMessages'), count: totalMessages, badge: totalUnread },
   ];
 
   return (
@@ -300,45 +302,107 @@ export default function ProfilePage() {
       )}
 
       {tab === 'messages' && (
-        <div>
-          {myMessages.length === 0 ? (
+        <div className="space-y-6">
+          {/* ── Support threads ── */}
+          {supportMessages.length > 0 && (
+            <div>
+              <h4 className="text-xs font-bold text-white/30 uppercase tracking-widest mb-3">Support</h4>
+              <div className="space-y-3">
+                {supportMessages.map((msg) => {
+                  const msgReplies = replies.filter((r) => r.supportMessageId === msg.id);
+                  const unreadReplies = msgReplies.filter((r) => !r.read && r.senderRole === 'admin');
+                  return (
+                    <div key={msg.id} className={`glass-card rounded-2xl border p-4 ${unreadReplies.length > 0 ? 'border-[#00E38C]/30' : 'border-white/8'}`}>
+                      {/* Original message */}
+                      <div className="flex items-start gap-3">
+                        <div className="w-9 h-9 rounded-full bg-white/8 border border-white/10 flex items-center justify-center text-base flex-shrink-0">💬</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="text-xs font-bold text-white/60">You → Support</span>
+                            {unreadReplies.length > 0 && (
+                              <span className="bg-[#00E38C] text-[#050816] text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                                {unreadReplies.length} new reply
+                              </span>
+                            )}
+                            <span className="text-xs text-white/20 ml-auto">{formatDate(msg.timestamp)}</span>
+                          </div>
+                          {msg.subject && <p className="text-xs font-semibold text-white/40 mb-1">{msg.subject}</p>}
+                          <p className="text-sm text-white/60">{msg.content}</p>
+                        </div>
+                      </div>
+
+                      {/* Admin replies */}
+                      {msgReplies.length > 0 && (
+                        <div className="mt-3 ml-12 border-l-2 border-[#00E38C]/20 pl-3 space-y-2">
+                          {msgReplies.map((reply) => (
+                            <div key={reply.id}
+                              className={`rounded-xl p-3 ${!reply.read ? 'bg-[#00E38C]/5 border border-[#00E38C]/15' : 'bg-white/[0.03]'}`}
+                              onClick={() => { if (!reply.read) markReplyRead(reply.id); }}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-bold text-[#00E38C]">↩ {reply.senderName}</span>
+                                {!reply.read && <span className="bg-[#00E38C] text-[#050816] text-[9px] font-bold px-1.5 py-0.5 rounded-full">NEW</span>}
+                                <span className="text-xs text-white/20">{formatDate(reply.createdAt)}</span>
+                              </div>
+                              <p className="text-sm text-white/70">{reply.message}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Direct messages ── */}
+          {myMessages.length > 0 && (
+            <div>
+              {supportMessages.length > 0 && (
+                <h4 className="text-xs font-bold text-white/30 uppercase tracking-widest mb-3">Direct Messages</h4>
+              )}
+              <div className="space-y-3">
+                {myMessages
+                  .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                  .map((msg) => {
+                    const isFromMe = msg.fromUserId === user.id;
+                    return (
+                      <div key={msg.id} className={`glass-card rounded-2xl border p-4 ${!msg.read && !isFromMe ? 'border-[#00E38C]/30' : 'border-white/8'}`}>
+                        <div className="flex items-start gap-3">
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#050816] text-xs font-bold flex-shrink-0"
+                            style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>
+                            {(isFromMe ? msg.toUserName : msg.fromUserName).charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs text-white/30">{isFromMe ? `${t('messages', 'to')} ` : `${t('messages', 'from')} `}</span>
+                              <span className="font-bold text-sm text-white">{isFromMe ? msg.toUserName : msg.fromUserName}</span>
+                              {!msg.read && !isFromMe && (
+                                <span className="bg-[#00E38C] text-[#050816] text-[10px] font-bold px-1.5 py-0.5 rounded-full">{t('messages', 'unread')}</span>
+                              )}
+                            </div>
+                            {msg.listingTitle && <p className="text-xs text-white/30 mb-1">{t('messages', 'regarding')}: {msg.listingTitle}</p>}
+                            <p className="text-sm text-white/70">{msg.content}</p>
+                          </div>
+                          <span className="text-xs text-white/20 flex-shrink-0">{formatDate(msg.timestamp)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                <Link href="/messages" className="block text-center py-3 text-sm font-semibold text-[#00E38C] hover:text-[#00C2FF] transition-colors">
+                  {t('messages', 'inbox')} →
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* ── Empty state ── */}
+          {totalMessages === 0 && (
             <div className="text-center py-16 glass-card rounded-3xl border border-white/8">
               <div className="text-5xl mb-4">💬</div>
               <h3 className="text-lg font-bold text-white mb-2">{t('messages', 'noMessages')}</h3>
               <p className="text-white/30 text-sm">{t('messages', 'noMessagesDesc')}</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {myMessages
-                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                .map((msg) => {
-                  const isFromMe = msg.fromUserId === user.id;
-                  return (
-                    <div key={msg.id} className={`glass-card rounded-2xl border p-4 ${!msg.read && !isFromMe ? 'border-[#00E38C]/30' : 'border-white/8'}`}>
-                      <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-full flex items-center justify-center text-[#050816] text-xs font-bold flex-shrink-0"
-                          style={{ background: 'linear-gradient(135deg, #00E38C, #00C2FF)' }}>
-                          {(isFromMe ? msg.toUserName : msg.fromUserName).charAt(0)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs text-white/30">{isFromMe ? `${t('messages', 'to')} ` : `${t('messages', 'from')} `}</span>
-                            <span className="font-bold text-sm text-white">{isFromMe ? msg.toUserName : msg.fromUserName}</span>
-                            {!msg.read && !isFromMe && (
-                              <span className="bg-[#00E38C] text-[#050816] text-[10px] font-bold px-1.5 py-0.5 rounded-full">{t('messages', 'unread')}</span>
-                            )}
-                          </div>
-                          {msg.listingTitle && <p className="text-xs text-white/30 mb-1">{t('messages', 'regarding')}: {msg.listingTitle}</p>}
-                          <p className="text-sm text-white/70">{msg.content}</p>
-                        </div>
-                        <span className="text-xs text-white/20 flex-shrink-0">{formatDate(msg.timestamp)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              <Link href="/messages" className="block text-center py-3 text-sm font-semibold text-[#00E38C] hover:text-[#00C2FF] transition-colors">
-                {t('messages', 'inbox')} →
-              </Link>
             </div>
           )}
         </div>

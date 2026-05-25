@@ -188,6 +188,17 @@ export interface SupportMessage {
   read: boolean;
 }
 
+export interface SupportReply {
+  id: string;
+  supportMessageId: string;
+  senderRole: 'admin' | 'user';
+  senderId?: string;
+  senderName: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+}
+
 export interface UserListing {
   id: string;
   publishedBy: string;

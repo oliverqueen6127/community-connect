@@ -51,3 +51,14 @@ export interface DbSupportMessage {
   page: string;
   created_at: string;
 }
+
+export interface DbSupportReply {
+  id: string;
+  support_message_id: string;
+  sender_role: 'admin' | 'user';
+  sender_id: string | null;
+  sender_name: string;
+  message: string;
+  read: boolean;
+  created_at: string;
+}

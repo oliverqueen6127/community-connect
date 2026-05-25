@@ -91,8 +91,8 @@ const typeEmoji = (type: string) => type === 'business' ? '🏪' : type === 'eve
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
-  const { user, isLoading, logout } = useApp();
-  const { supportMessages, unreadSupportCount, markSupportMessageRead, deleteSupportMessage, sendSupportMessage } = useMessages();
+  const { user, isLoading, logout, addToast } = useApp();
+  const { supportMessages, replies, unreadSupportCount, markSupportMessageRead, deleteSupportMessage, sendReply } = useMessages();
   const { userListings, deleteListing, approveListing, rejectListing, isLoading: listingsLoading } = useListings();
   const { t } = useLanguage();
   const router = useRouter();
@@ -157,18 +157,18 @@ export default function AdminPage() {
   const handleReply = useCallback(async (targetMsg: { id: string; fromUserEmail: string; fromUserName: string }) => {
     if (!replyText.trim()) return;
     setReplying(true);
-    sendSupportMessage({
-      fromUserId: 'mock-admin-1',
-      fromUserName: 'Community Connect Support',
-      fromUserEmail: 'admin@communityconnect.local',
-      subject: `Re: message from ${targetMsg.fromUserName}`,
-      content: replyText.trim(),
-      page: '/admin',
-    });
-    setReplyTarget(null);
-    setReplyText('');
-    setReplying(false);
-  }, [replyText, sendSupportMessage]);
+    try {
+      await sendReply(targetMsg.id, replyText.trim());
+      setReplyTarget(null);
+      setReplyText('');
+      addToast({ type: 'success', message: `Reply sent to ${targetMsg.fromUserName}.` });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast({ type: 'error', message: `Reply failed: ${msg}` });
+    } finally {
+      setReplying(false);
+    }
+  }, [replyText, sendReply, addToast]);
 
   // ── Loading guard ──────────────────────────────────────────────────────────
   if (isLoading || !user || user.role !== 'admin' || user.id !== 'mock-admin-1') {
@@ -608,6 +608,23 @@ export default function AdminPage() {
                       <p className="text-sm text-white/70 mt-2">{msg.content}</p>
                     </div>
                   </div>
+
+                  {/* Existing replies thread */}
+                  {replies.filter((r) => r.supportMessageId === msg.id).length > 0 && (
+                    <div className="mt-3 ml-13 border-l-2 border-[#00E38C]/20 pl-3 space-y-2">
+                      {replies
+                        .filter((r) => r.supportMessageId === msg.id)
+                        .map((reply) => (
+                          <div key={reply.id} className="text-sm">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-xs font-bold text-[#00E38C]">↩ {reply.senderName}</span>
+                              <span className="text-xs text-white/20">{new Date(reply.createdAt).toLocaleDateString()}</span>
+                            </div>
+                            <p className="text-white/60">{reply.message}</p>
+                          </div>
+                        ))}
+                    </div>
+                  )}
 
                   {/* Reply textarea */}
                   {replyTarget === msg.id && (

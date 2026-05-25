@@ -145,7 +145,7 @@ function rowToUserListing(row: Record<string, unknown>, type: ListingType): User
     type,
     data: rowToData(row, type),
     createdAt: (row.created_at as string) || new Date().toISOString(),
-    status: (row.status as string) === 'active' ? 'active' : 'pending',
+    status: (row.status as string) === 'active' ? 'active' : (row.status as string) === 'rejected' ? 'rejected' : 'pending',
   };
 }
 

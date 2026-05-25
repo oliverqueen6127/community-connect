@@ -21,20 +21,23 @@ export default function SupportPage() {
     if (!message.trim() || !user) return;
 
     setSending(true);
-    await new Promise((r) => setTimeout(r, 600));
-
-    sendSupportMessage({
-      fromUserId: user.id,
-      fromUserName: user.name,
-      fromUserEmail: user.email,
-      subject: subject.trim() || undefined,
-      content: message.trim(),
-      page: '/support',
-    });
-
-    addToast({ type: 'success', message: t('supportPage', 'sent') });
-    setSent(true);
-    setSending(false);
+    try {
+      await sendSupportMessage({
+        fromUserId: user.id,
+        fromUserName: user.name,
+        fromUserEmail: user.email,
+        subject: subject.trim() || undefined,
+        content: message.trim(),
+        page: '/support',
+      });
+      addToast({ type: 'success', message: t('supportPage', 'sent') });
+      setSent(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast({ type: 'error', message: `Failed to send: ${msg}` });
+    } finally {
+      setSending(false);
+    }
   };
 
   if (!user) {
