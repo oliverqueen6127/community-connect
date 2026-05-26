@@ -52,6 +52,14 @@ interface AIIntent {
   rating: number | null;
 }
 
+// ── Restaurant category expansion ─────────────────────────────────────────────
+// ListingCategory has 'halal' and 'restaurant' as separate values — many halal
+// food businesses are categorised as 'halal', not 'restaurant'. When the user
+// searches for restaurants we must accept both, plus food-tagged businesses.
+
+const RESTAURANT_EQUIVALENT_CATEGORIES = new Set(['restaurant', 'halal', 'entertainment']);
+const FOOD_TAGS = ['restaurant', 'food', 'halal', 'dining', 'cafe', 'bakery', 'takeout', 'dine-in', 'grill'];
+
 // ── Keyword classification ────────────────────────────────────────────────────
 // Specific business keywords: product/service names where if no listing matches,
 // we return empty rather than unrelated results. Jobs always use strict matching.
@@ -525,7 +533,11 @@ async function querySupabaseListings(supabase: SupabaseClient, intent: AIIntent)
       if (intent.state) q = q.ilike('state', `%${intent.state}%`);
 
       if (type === 'business') {
-        if (intent.category) q = q.ilike('category', `%${intent.category}%`);
+        // Skip category filter for restaurant — 'halal' businesses won't match '%restaurant%'.
+        // applyStrictFilters handles the expansion in memory.
+        if (intent.category && intent.category !== 'restaurant') {
+          q = q.ilike('category', `%${intent.category}%`);
+        }
         if (intent.rating) q = q.gte('rating', intent.rating);
       }
       if (type === 'event' && intent.isFree !== null) {
@@ -633,17 +645,27 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
     });
   }
 
-  // Business category (broad match)
+  // Business category (broad match — with expansion for restaurant)
   if (intent.category && intent.type === 'business') {
     const catLower = intent.category.toLowerCase();
+    const beforeCat = filtered.length;
     filtered = filtered.filter((item) => {
       if (item.type !== 'business') return true;
       const b = item as Business;
+      const bCatLower = b.category.toLowerCase();
+      if (catLower === 'restaurant') {
+        // Include halal + entertainment categories and food-tagged businesses
+        return (
+          RESTAURANT_EQUIVALENT_CATEGORIES.has(bCatLower) ||
+          b.tags.some((t) => FOOD_TAGS.some((kw) => t.toLowerCase().includes(kw)))
+        );
+      }
       return (
-        b.category.toLowerCase().includes(catLower) ||
+        bCatLower.includes(catLower) ||
         b.tags.some((t) => t.toLowerCase().includes(catLower))
       );
     });
+    console.log('AFTER_CATEGORY_FILTER_COUNT', filtered.length, '(was', beforeCat + ')');
   }
 
   // Rating
@@ -770,13 +792,17 @@ export async function POST(request: NextRequest) {
     intent.keywords = intent.keywords.filter((kw) => !GENERIC_CATEGORY_WORDS.has(kw.toLowerCase()));
 
     console.log('AI_INTENT', JSON.stringify(intent));
+    console.log('KEYWORDS_AFTER_STRIP', JSON.stringify(intent.keywords));
+    console.log('STRICT_MODE', isStrictSearch(intent));
 
     // ── Step 2: Query static data + Supabase ─────────────────────────────────
     const filters: SearchFilters = {
       type: intent.type ?? undefined,
       city: intent.city ?? undefined,
       state: intent.state ?? undefined,
-      category: intent.category ?? undefined,
+      // Skip 'restaurant' category in searchDirectory — halal businesses won't match it.
+      // applyStrictFilters handles the expanded restaurant category matching in memory.
+      category: (intent.category && intent.category !== 'restaurant') ? intent.category : undefined,
       remote: intent.remote ?? undefined,
       jobType: intent.jobType ?? undefined,
       listingType: intent.listingType ?? undefined,
@@ -814,10 +840,13 @@ export async function POST(request: NextRequest) {
       type: r.type,
       city: 'city' in r ? (r as { city: string }).city : '',
       price: r.type === 'housing' ? (r as Housing).price : undefined,
+      category: 'category' in r ? (r as { category: string }).category : undefined,
     }))));
+    console.log('RAW_RESULTS_COUNT', rawResults.length);
 
     // ── Step 3: Keyword scoring + strict filter ───────────────────────────────
     const keywordFiltered = applyKeywordFilter(rawResults, intent);
+    console.log('AFTER_KEYWORD_FILTER_COUNT', keywordFiltered.length);
 
     // ── Step 4: Structural strict filters (type, city, price, category...) ───
     const strictFiltered = applyStrictFilters(keywordFiltered, intent);
@@ -826,7 +855,9 @@ export async function POST(request: NextRequest) {
       title: getItemTitle(r),
       type: r.type,
       price: r.type === 'housing' ? (r as Housing).price : undefined,
+      category: 'category' in r ? (r as { category: string }).category : undefined,
     }))));
+    console.log('FINAL_RESULTS_COUNT', strictFiltered.length);
 
     const topResults = strictFiltered.slice(0, 8);
     const totalFound = strictFiltered.length;
