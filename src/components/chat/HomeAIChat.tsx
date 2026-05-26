@@ -50,7 +50,7 @@ export default function HomeAIChat() {
       ]);
 
       try {
-        const response = await fetch('/api/chat', {
+        const response = await fetch('/api/ai-search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
