@@ -52,10 +52,131 @@ interface AIIntent {
   rating: number | null;
 }
 
+// ── Keyword classification ────────────────────────────────────────────────────
+// Specific business keywords: product/service names where if no listing matches,
+// we return empty rather than unrelated results. Jobs always use strict matching.
+
+const SPECIFIC_BUSINESS_KEYWORDS = new Set([
+  // Coffee & drinks
+  'coffee', 'cafe', 'café', 'espresso', 'latte', 'cappuccino', 'mocha', 'americano',
+  'boba', 'bubble tea', 'smoothie', 'juice bar', 'tea house',
+  // Specific cuisines/food types
+  'sushi', 'pizza', 'burger', 'taco', 'ramen', 'pho', 'kebab', 'dim sum',
+  'bbq', 'barbecue', 'donut', 'doughnut', 'bagel', 'crepe', 'waffle',
+  'ice cream', 'gelato', 'dessert', 'bakery cake',
+  // Fitness & wellness
+  'gym', 'fitness', 'yoga', 'pilates', 'crossfit', 'boxing', 'martial arts',
+  // Beauty & personal care
+  'barber', 'barbershop', 'salon', 'spa', 'nail', 'beauty supply', 'hair',
+  // Health services
+  'pharmacy', 'drugstore', 'optician', 'eye care',
+  // Entertainment & recreation
+  'hookah', 'shisha', 'bowling', 'billiard', 'arcade', 'gaming',
+  // Child care
+  'daycare', 'preschool', 'kindergarten', 'nursery', 'childcare',
+  // Specific retail
+  'bookstore', 'book store', 'library', 'florist', 'flower shop',
+  // Services
+  'laundromat', 'dry cleaning', 'cleaners', 'car wash', 'auto repair',
+  'locksmith', 'tailor', 'alterations',
+]);
+
+// Job occupation keywords — strict: if you search "warehouse job", return only warehouse jobs
+const JOB_OCCUPATION_KEYWORDS = new Set([
+  'warehouse', 'driver', 'delivery', 'forklift', 'mechanic', 'engineer',
+  'developer', 'programmer', 'software', 'nurse', 'teacher', 'manager',
+  'accountant', 'chef', 'cook', 'security', 'cleaning', 'maintenance',
+  'technician', 'designer', 'salesperson', 'cashier', 'receptionist',
+  'data', 'marketing', 'hr', 'finance', 'legal', 'analyst', 'coordinator',
+]);
+
+function isStrictSearch(intent: AIIntent): boolean {
+  if (intent.keywords.length === 0) return false;
+  // Job occupation keywords are always strict
+  if (intent.type === 'job') {
+    return intent.keywords.some((kw) => JOB_OCCUPATION_KEYWORDS.has(kw.toLowerCase()));
+  }
+  // Specific business product/service keywords are strict
+  if (intent.type === 'business' || intent.type === null) {
+    return intent.keywords.some((kw) =>
+      Array.from(SPECIFIC_BUSINESS_KEYWORDS).some((sk) => kw.toLowerCase().includes(sk))
+    );
+  }
+  return false;
+}
+
+// ── Scoring ────────────────────────────────────────────────────────────────────
+// title/name match = 10, category/tags = 7, description = 3, city alone = 0
+
+function getItemTitle(item: Listing): string {
+  if (item.type === 'business') return (item as Business).name;
+  if (item.type === 'event') return (item as Event).title;
+  if (item.type === 'housing') return (item as Housing).title;
+  if (item.type === 'job') return (item as Job).title;
+  return '';
+}
+
+function scoreResult(item: Listing, keywords: string[]): number {
+  if (keywords.length === 0) return 1; // no keywords = include everything
+  let score = 0;
+  for (const kw of keywords) {
+    const k = kw.toLowerCase();
+    const title = getItemTitle(item).toLowerCase();
+    if (title.includes(k)) { score += 10; continue; }
+
+    const category = ('category' in item ? (item as { category: string }).category : '').toLowerCase();
+    if (category.includes(k)) { score += 7; continue; }
+
+    const tags: string[] = ('tags' in item ? (item as { tags: string[] }).tags : []) || [];
+    if (tags.some((t) => t.toLowerCase().includes(k))) { score += 7; continue; }
+
+    const desc = ('description' in item ? (item as { description: string }).description : '').toLowerCase();
+    if (desc.includes(k)) { score += 3; }
+  }
+  return score;
+}
+
+// ── Keyword filter (separate step, runs after merge) ─────────────────────────
+
+function applyKeywordFilter(
+  results: Listing[],
+  intent: AIIntent,
+): Listing[] {
+  if (intent.keywords.length === 0) return results;
+
+  const scored = results.map((item) => ({ item, score: scoreResult(item, intent.keywords) }));
+
+  console.log('SCORED RESULTS', JSON.stringify(scored.map((s) => ({
+    title: getItemTitle(s.item),
+    type: s.item.type,
+    score: s.score,
+  }))));
+
+  const matched = scored
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((s) => s.item);
+
+  const rejected = scored.filter((s) => s.score === 0).map((s) => s.item);
+
+  console.log('REJECTED RESULTS', JSON.stringify(rejected.map((r) => ({
+    title: getItemTitle(r),
+    type: r.type,
+  }))));
+
+  if (matched.length > 0) return matched;
+
+  // No keyword matches found
+  if (isStrictSearch(intent)) {
+    // Specific product/job search: never fall back to unrelated results
+    return [];
+  }
+
+  // Generic keyword (e.g. "weekend", "community") with no match → keep all
+  return results;
+}
+
 // ── Price parsing ──────────────────────────────────────────────────────────────
-// Handles: "less than 2500", "under 2500", "below 2500", "max 2500",
-//          "budget 2500", "no more than 2500", "cheaper than 2500",
-//          "at most 2500", "up to 2500", "2500 or less"
 
 function extractPriceMax(lower: string): number | null {
   const patterns = [
@@ -84,7 +205,6 @@ function extractPriceMin(lower: string): number | null {
   return null;
 }
 
-// Normalizes price values that may be stored as strings ("$2,200/mo") or numbers (2200)
 function normalizePrice(price: string | number | undefined | null): number {
   if (price === undefined || price === null) return 0;
   if (typeof price === 'number') return price;
@@ -95,7 +215,7 @@ function normalizePrice(price: string | number | undefined | null): number {
     .replace(/\/yr(?:ear)?/gi, '')
     .replace(/\/year/gi, '')
     .trim()
-    .split(/[\s–-]/)[0]; // take the first number if range like "2000-3000"
+    .split(/[\s–-]/)[0];
   return parseFloat(cleaned) || 0;
 }
 
@@ -128,14 +248,23 @@ JSON shape (all fields required, use null when not applicable):
 }
 
 Rules:
-- type: "business" = restaurants/mosques/grocery/healthcare/schools/cafes/retail; "event" = events/festivals/workshops; "housing" = apartments/homes/rentals/condos/studio; "job" = jobs/careers/hiring/employment
-- category for businesses: restaurant, mosque, grocery, healthcare, school, retail, services, entertainment
+- type: "business" = restaurants/mosques/grocery/healthcare/schools/cafes/coffee shops/retail; "event" = events/festivals/workshops; "housing" = apartments/homes/rentals/condos/studio; "job" = jobs/careers/hiring
+- category for businesses (only these values): restaurant, mosque, grocery, healthcare, school, retail, services, entertainment
+  * CRITICAL: Do NOT use "restaurant" for coffee/cafe searches. Coffee shops are NOT restaurants.
+  * CRITICAL: For coffee, cafe, espresso, latte, yoga, gym, barber, salon, pharmacy → set category=null and put the specific term in keywords instead
+  * Use category only for broad searches: "restaurant" → halal food, "mosque" → Islamic centers
+- keywords: up to 4 terms. IMPORTANT: put specific product/service names here (coffee, pizza, gym, barber, yoga, etc.)
 - city: extract if user names one, otherwise use default "${defaultCity || 'unknown'}"
 - state: use default "${defaultState || 'unknown'}" unless user names another
-- priceMax: extract from "less than X", "under X", "below X", "max X", "budget X", "no more than X", "cheaper than X", "up to X", "at most X", "X or less", "within X" — set to the NUMBER X only
+- priceMax: extract from "less than X", "under X", "below X", "max X", "budget X", "no more than X", "cheaper than X", "up to X", "at most X", "X or less" — set to NUMBER X only
 - priceMin: extract from "more than X", "over X", "above X", "at least X", "minimum X", "paying over X" — set to NUMBER X
-- listingType: "rent" if user says "rent"/"rental"/"apartment" without buying intent; "sale" if "buy"/"purchase"/"for sale"
-- keywords: up to 4 relevant search terms from the message`;
+
+Examples:
+- "coffee in New York" → type="business", category=null, keywords=["coffee","cafe"]
+- "halal restaurant" → type="business", category="restaurant", keywords=["halal"]
+- "mosque near me" → type="business", category="mosque", keywords=[]
+- "warehouse job" → type="job", keywords=["warehouse"]
+- "rent under 2500" → type="housing", listingType="rent", priceMax=2500, keywords=[]`;
 
   try {
     const msgs: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -169,6 +298,9 @@ Rules:
 
 // ── Step 1b: Regex fallback (no API key) ──────────────────────────────────────
 
+const COFFEE_WORDS = ['coffee', 'espresso', 'latte', 'cappuccino', 'mocha', 'americano'];
+const CAFE_WORDS = ['cafe', 'café', 'coffeehouse', 'coffee shop'];
+
 function extractIntentFallback(message: string, defaultCity: string, defaultState: string): AIIntent {
   const lower = message.toLowerCase();
   let type: AIIntent['type'] = null;
@@ -179,7 +311,7 @@ function extractIntentFallback(message: string, defaultCity: string, defaultStat
     'warehouse', 'driver', 'delivery', 'forklift', 'mechanic', 'engineer',
     'developer', 'programmer', 'nurse', 'teacher', 'manager', 'accountant',
     'chef', 'cook', 'security', 'cleaning', 'maintenance', 'technician',
-    'designer', 'salesperson', 'cashier', 'intern',
+    'designer', 'salesperson', 'cashier', 'intern', 'software', 'data',
   ];
   const matchedOccupations = JOB_OCCUPATIONS.filter((o) => lower.includes(o));
   const hasJobWord =
@@ -194,9 +326,26 @@ function extractIntentFallback(message: string, defaultCity: string, defaultStat
     type = 'business'; category = 'mosque';
   } else if (lower.includes('grocery') || lower.includes('supermarket') || lower.includes('butcher') || lower.includes('market')) {
     type = 'business'; category = 'grocery';
+  } else if (COFFEE_WORDS.some((w) => lower.includes(w))) {
+    // Coffee/espresso: specific product search — no category, strict keyword matching
+    type = 'business'; category = null;
+    const matched = COFFEE_WORDS.filter((w) => lower.includes(w));
+    keywords.push(...matched.slice(0, 2), 'cafe');
+  } else if (CAFE_WORDS.some((w) => lower.includes(w))) {
+    // Cafe: specific product search
+    type = 'business'; category = null;
+    keywords.push('cafe', 'coffee');
+  } else if (lower.includes('gym') || lower.includes('fitness') || lower.includes('yoga') || lower.includes('pilates')) {
+    type = 'business'; category = null;
+    const matched = ['gym', 'fitness', 'yoga', 'pilates'].filter((w) => lower.includes(w));
+    keywords.push(...matched);
+  } else if (lower.includes('barber') || lower.includes('salon') || lower.includes('spa')) {
+    type = 'business'; category = null;
+    const matched = ['barber', 'salon', 'spa'].filter((w) => lower.includes(w));
+    keywords.push(...matched);
   } else if (
     lower.includes('restaurant') || lower.includes('food') || lower.includes('eat') ||
-    lower.includes('cafe') || lower.includes('bakery') || lower.includes('halal') || lower.includes('dining')
+    lower.includes('bakery') || lower.includes('halal') || lower.includes('dining')
   ) {
     type = 'business'; category = 'restaurant';
     if (lower.includes('halal')) keywords.push('halal');
@@ -384,7 +533,6 @@ async function querySupabaseListings(supabase: SupabaseClient, intent: AIIntent)
       if (type === 'housing') {
         if (intent.listingType) q = q.eq('listing_type', intent.listingType);
         if (intent.bedrooms) q = q.gte('bedrooms', intent.bedrooms);
-        // Push price filter to DB level too for efficiency
         if (intent.priceMax !== null) q = q.lte('price', intent.priceMax);
         if (intent.priceMin !== null) q = q.gte('price', intent.priceMin);
       }
@@ -407,19 +555,18 @@ async function querySupabaseListings(supabase: SupabaseClient, intent: AIIntent)
   return rows;
 }
 
-// ── Strict server-side filter (applied AFTER merge — absolute guarantee) ───────
-// This is the definitive filter that enforces all user constraints.
-// It runs regardless of whether Supabase/static already filtered to catch edge cases.
+// ── Strict structural filters (type, city, price, etc.) ───────────────────────
+// Keyword filtering is handled separately by applyKeywordFilter above.
 
 function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
   let filtered = results;
 
-  // 1. Type
+  // Type
   if (intent.type) {
     filtered = filtered.filter((item) => item.type === intent.type);
   }
 
-  // 2. City (case-insensitive partial match)
+  // City (case-insensitive partial match)
   if (intent.city) {
     const cityLower = intent.city.toLowerCase();
     filtered = filtered.filter((item) => {
@@ -428,7 +575,7 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
     });
   }
 
-  // 3. Housing price (STRICT — most important fix)
+  // Housing price (STRICT)
   if (intent.priceMax !== null && intent.priceMax !== undefined && intent.type === 'housing') {
     console.log('PRICE MAX', intent.priceMax);
     filtered = filtered.filter((item) => {
@@ -438,16 +585,14 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
       return price <= intent.priceMax!;
     });
   }
-
   if (intent.priceMin !== null && intent.priceMin !== undefined && intent.type === 'housing') {
     filtered = filtered.filter((item) => {
       if (item.type !== 'housing') return true;
-      const price = normalizePrice((item as Housing).price);
-      return price >= intent.priceMin!;
+      return normalizePrice((item as Housing).price) >= intent.priceMin!;
     });
   }
 
-  // 4. Bedrooms
+  // Bedrooms
   if (intent.bedrooms !== null && intent.bedrooms !== undefined) {
     filtered = filtered.filter((item) => {
       if (item.type !== 'housing') return true;
@@ -455,7 +600,7 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
     });
   }
 
-  // 5. Listing type (rent/sale)
+  // Listing type (rent/sale)
   if (intent.listingType) {
     filtered = filtered.filter((item) => {
       if (item.type !== 'housing') return true;
@@ -463,7 +608,7 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
     });
   }
 
-  // 6. Job remote
+  // Job remote
   if (intent.remote !== null && intent.remote !== undefined) {
     filtered = filtered.filter((item) => {
       if (item.type !== 'job') return true;
@@ -471,7 +616,7 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
     });
   }
 
-  // 7. Job type
+  // Job type
   if (intent.jobType) {
     filtered = filtered.filter((item) => {
       if (item.type !== 'job') return true;
@@ -479,7 +624,7 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
     });
   }
 
-  // 8. Event free
+  // Event free
   if (intent.isFree !== null && intent.isFree !== undefined) {
     filtered = filtered.filter((item) => {
       if (item.type !== 'event') return true;
@@ -487,7 +632,7 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
     });
   }
 
-  // 9. Business category
+  // Business category (broad match)
   if (intent.category && intent.type === 'business') {
     const catLower = intent.category.toLowerCase();
     filtered = filtered.filter((item) => {
@@ -500,7 +645,7 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
     });
   }
 
-  // 10. Rating
+  // Rating
   if (intent.rating !== null && intent.rating !== undefined) {
     filtered = filtered.filter((item) => {
       if (item.type !== 'business') return true;
@@ -511,7 +656,7 @@ function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
   return filtered;
 }
 
-// ── Build compact result summary for OpenAI ───────────────────────────────────
+// ── Result summary for OpenAI ─────────────────────────────────────────────────
 
 function buildResultsSummary(results: Listing[]): string {
   if (results.length === 0) return 'No listings found matching the search criteria.';
@@ -533,27 +678,34 @@ function buildResultsSummary(results: Listing[]): string {
   }).join('\n');
 }
 
-// ── Mock response (no API key or streaming fallback) ──────────────────────────
+// ── Mock / fallback response ──────────────────────────────────────────────────
 
 function generateMockResponse(intent: AIIntent, count: number): string {
   const city = intent.city ? ` in ${intent.city}` : '';
   const priceLabel = intent.priceMax ? ` under $${intent.priceMax.toLocaleString()}` : '';
+  const keyword = intent.keywords[0] || null;
 
   if (count === 0) {
+    if (keyword && isStrictSearch(intent)) {
+      return `I couldn't find any ${keyword} places${city}. This category may not be listed yet — try a nearby city or check back later!`;
+    }
     if (intent.type === 'housing' && intent.priceMax) {
       return `I couldn't find rentals${priceLabel}${city}. Try increasing your budget or checking a nearby city.`;
     }
-    return `I couldn't find any listings${city} matching your search. Try a different city or broaden your search terms!`;
+    return `I couldn't find any listings${city} matching your search. Try a different city or broader terms!`;
   }
 
   const s = count === 1 ? '' : 's';
+  const label = keyword && isStrictSearch(intent) ? keyword : null;
+
+  if (intent.type === 'business' && label) return `I found ${count} ${label} place${s}${city}! Check out the listings below.`;
+  if (intent.type === 'business') return `I found ${count} business${s}${city}! Check out these community-verified listings.`;
+  if (intent.type === 'event') return `I found ${count} upcoming event${s}${city}! Great community gatherings to explore.`;
   if (intent.type === 'housing') {
     const rentLabel = intent.listingType === 'sale' ? 'propert' : 'rental';
     const rentS = count === 1 ? 'y' : 'ies';
-    return `I found ${count} ${rentLabel}${rentS}${priceLabel}${city}! Here are the available listings below.`;
+    return `I found ${count} ${rentLabel}${rentS}${priceLabel}${city}! Here are the available listings.`;
   }
-  if (intent.type === 'business') return `I found ${count} ${intent.category || 'business'}${s}${city}! Check out these community-verified listings.`;
-  if (intent.type === 'event') return `I found ${count} upcoming event${s}${city}! Great community gatherings to explore.`;
   if (intent.type === 'job') return `I found ${count} job opportunit${count === 1 ? 'y' : 'ies'}${city}! Here are positions that match your search.`;
   return `I found ${count} listing${s}${city} across our community directory!`;
 }
@@ -580,6 +732,8 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.OPENAI_API_KEY;
     const supabase = getSupabase();
 
+    console.log('QUERY', safeMessage);
+
     // ── Step 1: Extract intent ────────────────────────────────────────────────
     let intent: AIIntent;
     if (apiKey) {
@@ -589,10 +743,18 @@ export async function POST(request: NextRequest) {
       intent = extractIntentFallback(safeMessage, activeCity, activeState);
     }
 
-    // Safety: always run regex price extraction and use it if OpenAI missed it
+    // Safety: always run regex price extraction — fills in if OpenAI missed it
     const lower = safeMessage.toLowerCase();
     if (intent.priceMax === null) intent.priceMax = extractPriceMax(lower);
     if (intent.priceMin === null) intent.priceMin = extractPriceMin(lower);
+
+    // Safety: if OpenAI set category="restaurant" for a coffee search, override it
+    if (
+      intent.category === 'restaurant' &&
+      intent.keywords.some((kw) => COFFEE_WORDS.includes(kw.toLowerCase()) || CAFE_WORDS.includes(kw.toLowerCase()))
+    ) {
+      intent.category = null;
+    }
 
     console.log('AI INTENT', JSON.stringify(intent));
 
@@ -611,31 +773,18 @@ export async function POST(request: NextRequest) {
       rating: intent.rating ?? undefined,
       keywords: intent.keywords.length > 0 ? intent.keywords : undefined,
     };
-    console.log('AI FILTERS', JSON.stringify(filters));
 
-    // Static data search (applies all filters internally)
     const staticResults = searchDirectory(filters);
 
-    // Supabase search (structural + price filters at DB level)
     let supabaseResults: Listing[] = [];
     if (supabase) {
       supabaseResults = await querySupabaseListings(supabase, intent);
     }
 
-    // Keyword filter Supabase results in-memory
-    let filteredSupabase = supabaseResults;
-    if (intent.keywords.length > 0) {
-      const kwFiltered = supabaseResults.filter((item) => {
-        const str = JSON.stringify(item).toLowerCase();
-        return intent.keywords.some((k) => str.includes(k.toLowerCase()));
-      });
-      if (kwFiltered.length > 0) filteredSupabase = kwFiltered;
-    }
-
     // Merge: Supabase first (newer/user-submitted), then static — dedup by id
     const seenIds = new Set<string>();
     const rawResults: Listing[] = [];
-    for (const item of [...filteredSupabase, ...staticResults]) {
+    for (const item of [...supabaseResults, ...staticResults]) {
       if (!seenIds.has(item.id)) {
         seenIds.add(item.id);
         rawResults.push(item);
@@ -643,30 +792,26 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('RAW RESULTS', JSON.stringify(rawResults.map((r) => ({
-      id: r.id,
+      title: getItemTitle(r),
       type: r.type,
       city: 'city' in r ? (r as { city: string }).city : '',
       price: r.type === 'housing' ? (r as Housing).price : undefined,
     }))));
 
-    // ── Strict filter (definitive — cannot be bypassed by bad AI output) ──────
-    const filteredResults = applyStrictFilters(rawResults, intent);
+    // ── Step 3: Keyword scoring + strict filter ───────────────────────────────
+    const keywordFiltered = applyKeywordFilter(rawResults, intent);
 
-    console.log('FILTERED RESULTS', JSON.stringify(filteredResults.map((r) => ({
-      id: r.id,
+    // ── Step 4: Structural strict filters ────────────────────────────────────
+    const strictFiltered = applyStrictFilters(keywordFiltered, intent);
+
+    console.log('FINAL RESULTS', JSON.stringify(strictFiltered.map((r) => ({
+      title: getItemTitle(r),
       type: r.type,
       price: r.type === 'housing' ? (r as Housing).price : undefined,
     }))));
 
-    const topResults = filteredResults.slice(0, 8);
-    const totalFound = filteredResults.length;
-
-    console.log('SUPABASE RESULTS', JSON.stringify({
-      supabaseCount: supabaseResults.length,
-      staticCount: staticResults.length,
-      rawCount: rawResults.length,
-      filteredCount: totalFound,
-    }));
+    const topResults = strictFiltered.slice(0, 8);
+    const totalFound = strictFiltered.length;
 
     // ── No API key: mock streaming ────────────────────────────────────────────
     if (!apiKey) {
@@ -682,29 +827,32 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ── Step 3: OpenAI streaming answer from real results ─────────────────────
+    // ── Step 5: OpenAI streaming answer from real results ─────────────────────
     const openai = new OpenAI({ apiKey });
     const resultsSummary = buildResultsSummary(topResults);
-
     const priceContext = intent.priceMax
       ? `\nPRICE FILTER APPLIED: only listings at or below $${intent.priceMax.toLocaleString()} are shown.`
+      : '';
+    const keywordContext = intent.keywords.length > 0 && isStrictSearch(intent)
+      ? `\nKEYWORD FILTER APPLIED: only listings matching "${intent.keywords.join(', ')}" are shown.`
       : '';
 
     const systemPrompt = `You are Community Connect AI — a warm, concise assistant for Muslim Americans and diverse communities.
 
-ACTUAL SEARCH RESULTS (${topResults.length} shown of ${totalFound} that match ALL filters):
+ACTUAL SEARCH RESULTS (${topResults.length} shown of ${totalFound} matching ALL filters):
 ${resultsSummary}
-${priceContext}
-ACTIVE USER LOCATION: ${activeCity || 'unknown'}, ${activeState || 'unknown'}
+${priceContext}${keywordContext}
+USER LOCATION: ${activeCity || 'unknown'}, ${activeState || 'unknown'}
 
 RESPONSE RULES:
 1. Maximum 2–3 sentences, warm and direct
-2. State exact count and city. Be specific — say "1 rental" not "some rentals"
-3. If priceMax was set, mention the budget (e.g. "under $2,500")
-4. Result cards appear automatically — do NOT list them in your text
-5. If zero results: say clearly "I couldn't find [type] under $[budget] in [city]" then suggest increasing budget or trying nearby city
-6. NEVER invent listings. Only describe what is in the search results above
-7. Stay on topic — jobs query → talk only about jobs, housing → only housing`;
+2. State exact count and city
+3. If keyword filter was applied (coffee, pizza, gym, etc.): mention the specific thing searched
+4. If zero results with strict keyword: say "I couldn't find [keyword] places in [city]" — suggest checking back or nearby city
+5. If zero results with price filter: mention the budget and suggest increasing it
+6. Cards appear automatically — do NOT list them
+7. NEVER invent listings. Only describe what's in the search results above
+8. Stay on type — coffee search → only mention coffee/cafes, not restaurants`;
 
     const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
