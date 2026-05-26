@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChatMessage, Listing } from '@/lib/types';
+import { ChatMessage, ChatActiveFilters, Listing } from '@/lib/types';
 import { useApp } from '@/lib/context';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
@@ -85,6 +85,7 @@ export default function HomeAIChat() {
                 message?: string;
                 results?: Listing[];
                 totalFound?: number;
+                intent?: Record<string, unknown>;
               };
 
               if (data.type === 'text' && data.delta) {
@@ -96,10 +97,22 @@ export default function HomeAIChat() {
                   )
                 );
               } else if (data.type === 'done') {
+                const rawIntent = data.intent ?? {};
+                const activeFilters: ChatActiveFilters = {};
+                if (rawIntent.type) activeFilters.type = rawIntent.type as string;
+                if (rawIntent.city) activeFilters.city = rawIntent.city as string;
+                if (rawIntent.priceMax !== null && rawIntent.priceMax !== undefined) activeFilters.priceMax = rawIntent.priceMax as number;
+                if (rawIntent.priceMin !== null && rawIntent.priceMin !== undefined) activeFilters.priceMin = rawIntent.priceMin as number;
+                if (rawIntent.bedrooms !== null && rawIntent.bedrooms !== undefined) activeFilters.bedrooms = rawIntent.bedrooms as number;
+                if (rawIntent.listingType) activeFilters.listingType = rawIntent.listingType as string;
+                if (rawIntent.remote !== null && rawIntent.remote !== undefined) activeFilters.remote = rawIntent.remote as boolean;
+                if (rawIntent.isFree !== null && rawIntent.isFree !== undefined) activeFilters.isFree = rawIntent.isFree as boolean;
+                if (rawIntent.category) activeFilters.category = rawIntent.category as string;
+                if (rawIntent.rating !== null && rawIntent.rating !== undefined) activeFilters.rating = rawIntent.rating as number;
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === streamingId
-                      ? { ...m, isStreaming: false, results: data.results ?? [] }
+                      ? { ...m, isStreaming: false, results: data.results ?? [], activeFilters }
                       : m
                   )
                 );

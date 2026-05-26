@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ChatMessage, Listing, Business, Event as EventType, Housing, Job } from '@/lib/types';
+import { ChatMessage, ChatActiveFilters, Listing, Business, Event as EventType, Housing, Job } from '@/lib/types';
 import BusinessCard from '@/components/cards/BusinessCard';
 import EventCard from '@/components/cards/EventCard';
 import JobCard from '@/components/cards/JobCard';
@@ -10,6 +10,83 @@ import HousingCard from '@/components/cards/HousingCard';
 interface MessageBubbleProps {
   message: ChatMessage;
   onRegenerate?: () => void;
+}
+
+const TYPE_ICON: Record<string, string> = {
+  business: '🏪',
+  event: '🎉',
+  housing: '🏠',
+  job: '💼',
+};
+
+const CATEGORY_ICON: Record<string, string> = {
+  mosque: '🕌',
+  restaurant: '🍽️',
+  grocery: '🛒',
+  healthcare: '🏥',
+  school: '📚',
+  retail: '🛍️',
+  services: '🔧',
+  entertainment: '🎭',
+};
+
+function FilterChips({ filters }: { filters: ChatActiveFilters }) {
+  const chips: { icon: string; label: string; color: string }[] = [];
+
+  if (filters.type) {
+    chips.push({ icon: TYPE_ICON[filters.type] || '📋', label: filters.type.charAt(0).toUpperCase() + filters.type.slice(1), color: 'rgba(0,194,255,0.85)' });
+  }
+  if (filters.city) {
+    chips.push({ icon: '📍', label: filters.city, color: 'rgba(255,255,255,0.65)' });
+  }
+  if (filters.priceMax !== undefined) {
+    chips.push({ icon: '💰', label: `Under $${filters.priceMax.toLocaleString()}`, color: 'rgba(0,227,140,0.9)' });
+  }
+  if (filters.priceMin !== undefined) {
+    chips.push({ icon: '💰', label: `Over $${filters.priceMin.toLocaleString()}`, color: 'rgba(0,227,140,0.9)' });
+  }
+  if (filters.bedrooms !== undefined) {
+    chips.push({ icon: '🛏️', label: `${filters.bedrooms}+ Beds`, color: 'rgba(255,255,255,0.65)' });
+  }
+  if (filters.listingType === 'rent') {
+    chips.push({ icon: '🔑', label: 'For Rent', color: 'rgba(255,255,255,0.65)' });
+  } else if (filters.listingType === 'sale') {
+    chips.push({ icon: '🏷️', label: 'For Sale', color: 'rgba(255,165,0,0.9)' });
+  }
+  if (filters.remote) {
+    chips.push({ icon: '🌐', label: 'Remote', color: 'rgba(0,194,255,0.85)' });
+  }
+  if (filters.isFree) {
+    chips.push({ icon: '🆓', label: 'Free Only', color: 'rgba(0,227,140,0.9)' });
+  }
+  if (filters.category) {
+    const catIcon = CATEGORY_ICON[filters.category] || '🏷️';
+    chips.push({ icon: catIcon, label: filters.category.charAt(0).toUpperCase() + filters.category.slice(1), color: 'rgba(255,255,255,0.65)' });
+  }
+  if (filters.rating !== undefined) {
+    chips.push({ icon: '⭐', label: `${filters.rating}+ Stars`, color: 'rgba(255,215,0,0.9)' });
+  }
+
+  if (chips.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-3 mb-1">
+      <span className="text-xs text-white/25 self-center mr-0.5">Filters:</span>
+      {chips.map((chip, i) => (
+        <span
+          key={i}
+          className="flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full"
+          style={{
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            color: chip.color,
+          }}
+        >
+          {chip.icon} {chip.label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function ResultsGrid({ results }: { results: Listing[] }) {
@@ -125,6 +202,9 @@ export default function MessageBubble({ message, onRegenerate }: MessageBubblePr
             )}
           </div>
 
+          {!message.isStreaming && message.activeFilters && (
+            <FilterChips filters={message.activeFilters} />
+          )}
           {message.results && message.results.length > 0 && (
             <ResultsGrid results={message.results} />
           )}

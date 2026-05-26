@@ -108,6 +108,19 @@ export interface Job {
 
 export type Listing = Business | Event | Housing | Job;
 
+export interface ChatActiveFilters {
+  type?: string;
+  city?: string;
+  priceMax?: number;
+  priceMin?: number;
+  bedrooms?: number;
+  listingType?: string;
+  remote?: boolean;
+  isFree?: boolean;
+  category?: string;
+  rating?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -115,6 +128,7 @@ export interface ChatMessage {
   timestamp: Date;
   results?: Listing[];
   isStreaming?: boolean;
+  activeFilters?: ChatActiveFilters;
 }
 
 export interface SearchFilters {

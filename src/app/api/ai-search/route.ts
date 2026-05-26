@@ -47,8 +47,56 @@ interface AIIntent {
   listingType: 'rent' | 'sale' | null;
   bedrooms: number | null;
   priceMax: number | null;
+  priceMin: number | null;
   isFree: boolean | null;
   rating: number | null;
+}
+
+// ── Price parsing ──────────────────────────────────────────────────────────────
+// Handles: "less than 2500", "under 2500", "below 2500", "max 2500",
+//          "budget 2500", "no more than 2500", "cheaper than 2500",
+//          "at most 2500", "up to 2500", "2500 or less"
+
+function extractPriceMax(lower: string): number | null {
+  const patterns = [
+    /(?:less\s+than|under|below|cheaper\s+than|at\s+most|up\s+to|no\s+more\s+than|not\s+more\s+than)\s*\$?\s*([\d,]+)/,
+    /(?:max(?:imum)?|budget)\s+(?:of\s+)?\$?\s*([\d,]+)/,
+    /\$?\s*([\d,]+)\s+(?:or\s+less|and\s+under|and\s+below)/,
+    /within\s+\$?\s*([\d,]+)/,
+  ];
+  for (const re of patterns) {
+    const m = lower.match(re);
+    if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+  }
+  return null;
+}
+
+function extractPriceMin(lower: string): number | null {
+  const patterns = [
+    /(?:more\s+than|over|above|at\s+least|minimum|min)\s*\$?\s*([\d,]+)/,
+    /\$?\s*([\d,]+)\s+(?:or\s+more|and\s+above|and\s+over|and\s+up)/,
+    /paying\s+(?:over|at\s+least|more\s+than)\s+\$?\s*([\d,]+)/,
+  ];
+  for (const re of patterns) {
+    const m = lower.match(re);
+    if (m) return parseInt(m[1].replace(/,/g, ''), 10);
+  }
+  return null;
+}
+
+// Normalizes price values that may be stored as strings ("$2,200/mo") or numbers (2200)
+function normalizePrice(price: string | number | undefined | null): number {
+  if (price === undefined || price === null) return 0;
+  if (typeof price === 'number') return price;
+  const cleaned = price.toString()
+    .replace(/\$/g, '')
+    .replace(/,/g, '')
+    .replace(/\/mo(?:nth)?/gi, '')
+    .replace(/\/yr(?:ear)?/gi, '')
+    .replace(/\/year/gi, '')
+    .trim()
+    .split(/[\s–-]/)[0]; // take the first number if range like "2000-3000"
+  return parseFloat(cleaned) || 0;
 }
 
 // ── Step 1a: OpenAI intent extraction ─────────────────────────────────────────
@@ -62,7 +110,7 @@ async function extractIntentAI(
 ): Promise<AIIntent> {
   const systemPrompt = `You extract search intent for a Muslim American community directory. Return ONLY valid JSON, no markdown.
 
-JSON shape (all fields required, use null if not applicable):
+JSON shape (all fields required, use null when not applicable):
 {
   "type": "business"|"event"|"housing"|"job"|null,
   "category": string|null,
@@ -74,16 +122,20 @@ JSON shape (all fields required, use null if not applicable):
   "listingType": "rent"|"sale"|null,
   "bedrooms": number|null,
   "priceMax": number|null,
+  "priceMin": number|null,
   "isFree": boolean|null,
   "rating": number|null
 }
 
 Rules:
-- type: "business" for restaurants/mosques/grocery/healthcare/schools/cafes/retail; "event" for events/festivals/workshops; "housing" for apartments/homes/rentals/condos; "job" for jobs/careers/hiring
+- type: "business" = restaurants/mosques/grocery/healthcare/schools/cafes/retail; "event" = events/festivals/workshops; "housing" = apartments/homes/rentals/condos/studio; "job" = jobs/careers/hiring/employment
 - category for businesses: restaurant, mosque, grocery, healthcare, school, retail, services, entertainment
-- city: if user names a specific city, use it exactly; otherwise use default "${defaultCity || 'unknown'}"
-- state: use default "${defaultState || 'unknown'}" unless user names another state
-- keywords: up to 4 relevant search terms (e.g. ["halal", "delivery"], ["2 bedroom", "pet friendly"])`;
+- city: extract if user names one, otherwise use default "${defaultCity || 'unknown'}"
+- state: use default "${defaultState || 'unknown'}" unless user names another
+- priceMax: extract from "less than X", "under X", "below X", "max X", "budget X", "no more than X", "cheaper than X", "up to X", "at most X", "X or less", "within X" — set to the NUMBER X only
+- priceMin: extract from "more than X", "over X", "above X", "at least X", "minimum X", "paying over X" — set to NUMBER X
+- listingType: "rent" if user says "rent"/"rental"/"apartment" without buying intent; "sale" if "buy"/"purchase"/"for sale"
+- keywords: up to 4 relevant search terms from the message`;
 
   try {
     const msgs: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -96,13 +148,12 @@ Rules:
       model: 'gpt-4o-mini',
       messages: msgs,
       temperature: 0,
-      max_tokens: 300,
+      max_tokens: 350,
       response_format: { type: 'json_object' },
     });
 
     const raw = completion.choices[0]?.message?.content ?? '{}';
     const parsed = JSON.parse(raw) as AIIntent;
-    // Ensure keywords is always an array
     if (!Array.isArray(parsed.keywords)) parsed.keywords = [];
     return parsed;
   } catch (err) {
@@ -111,7 +162,7 @@ Rules:
       type: null, category: null,
       city: defaultCity || null, state: defaultState || null,
       keywords: [], remote: null, jobType: null, listingType: null,
-      bedrooms: null, priceMax: null, isFree: null, rating: null,
+      bedrooms: null, priceMax: null, priceMin: null, isFree: null, rating: null,
     };
   }
 }
@@ -179,7 +230,6 @@ function extractIntentFallback(message: string, defaultCity: string, defaultStat
     }
   }
 
-  const priceMatch = lower.match(/under\s*\$?(\d[\d,]*)/);
   const bedroomMatch = lower.match(/(\d)\s*(?:bed|bedroom|br)\b/);
   const ratingMatch = lower.match(/(\d(?:\.\d)?)\s*star/);
 
@@ -199,7 +249,8 @@ function extractIntentFallback(message: string, defaultCity: string, defaultStat
       : type === 'housing' ? 'rent'
       : null,
     bedrooms: bedroomMatch ? parseInt(bedroomMatch[1]) : null,
-    priceMax: priceMatch ? parseInt(priceMatch[1].replace(',', '')) : null,
+    priceMax: extractPriceMax(lower),
+    priceMin: extractPriceMin(lower),
     isFree: lower.includes('free') && type === 'event' ? true : null,
     rating: ratingMatch ? parseFloat(ratingMatch[1]) : null,
   };
@@ -333,7 +384,9 @@ async function querySupabaseListings(supabase: SupabaseClient, intent: AIIntent)
       if (type === 'housing') {
         if (intent.listingType) q = q.eq('listing_type', intent.listingType);
         if (intent.bedrooms) q = q.gte('bedrooms', intent.bedrooms);
-        if (intent.priceMax) q = q.lte('price', intent.priceMax);
+        // Push price filter to DB level too for efficiency
+        if (intent.priceMax !== null) q = q.lte('price', intent.priceMax);
+        if (intent.priceMin !== null) q = q.gte('price', intent.priceMin);
       }
       if (type === 'job') {
         if (intent.remote !== null) q = q.eq('remote', intent.remote);
@@ -354,7 +407,111 @@ async function querySupabaseListings(supabase: SupabaseClient, intent: AIIntent)
   return rows;
 }
 
-// ── Step 3: Build compact result summary for OpenAI ───────────────────────────
+// ── Strict server-side filter (applied AFTER merge — absolute guarantee) ───────
+// This is the definitive filter that enforces all user constraints.
+// It runs regardless of whether Supabase/static already filtered to catch edge cases.
+
+function applyStrictFilters(results: Listing[], intent: AIIntent): Listing[] {
+  let filtered = results;
+
+  // 1. Type
+  if (intent.type) {
+    filtered = filtered.filter((item) => item.type === intent.type);
+  }
+
+  // 2. City (case-insensitive partial match)
+  if (intent.city) {
+    const cityLower = intent.city.toLowerCase();
+    filtered = filtered.filter((item) => {
+      const itemCity = ('city' in item ? (item as { city: string }).city : '') || '';
+      return itemCity.toLowerCase().includes(cityLower);
+    });
+  }
+
+  // 3. Housing price (STRICT — most important fix)
+  if (intent.priceMax !== null && intent.priceMax !== undefined && intent.type === 'housing') {
+    console.log('PRICE MAX', intent.priceMax);
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'housing') return true;
+      const price = normalizePrice((item as Housing).price);
+      console.log('NORMALIZED PRICE', (item as Housing).title, price, '<=', intent.priceMax, '->', price <= intent.priceMax!);
+      return price <= intent.priceMax!;
+    });
+  }
+
+  if (intent.priceMin !== null && intent.priceMin !== undefined && intent.type === 'housing') {
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'housing') return true;
+      const price = normalizePrice((item as Housing).price);
+      return price >= intent.priceMin!;
+    });
+  }
+
+  // 4. Bedrooms
+  if (intent.bedrooms !== null && intent.bedrooms !== undefined) {
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'housing') return true;
+      return (item as Housing).bedrooms >= intent.bedrooms!;
+    });
+  }
+
+  // 5. Listing type (rent/sale)
+  if (intent.listingType) {
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'housing') return true;
+      return (item as Housing).listingType === intent.listingType;
+    });
+  }
+
+  // 6. Job remote
+  if (intent.remote !== null && intent.remote !== undefined) {
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'job') return true;
+      return (item as Job).remote === intent.remote;
+    });
+  }
+
+  // 7. Job type
+  if (intent.jobType) {
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'job') return true;
+      return (item as Job).jobType === intent.jobType;
+    });
+  }
+
+  // 8. Event free
+  if (intent.isFree !== null && intent.isFree !== undefined) {
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'event') return true;
+      return (item as Event).isFree === intent.isFree;
+    });
+  }
+
+  // 9. Business category
+  if (intent.category && intent.type === 'business') {
+    const catLower = intent.category.toLowerCase();
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'business') return true;
+      const b = item as Business;
+      return (
+        b.category.toLowerCase().includes(catLower) ||
+        b.tags.some((t) => t.toLowerCase().includes(catLower))
+      );
+    });
+  }
+
+  // 10. Rating
+  if (intent.rating !== null && intent.rating !== undefined) {
+    filtered = filtered.filter((item) => {
+      if (item.type !== 'business') return true;
+      return (item as Business).rating >= intent.rating!;
+    });
+  }
+
+  return filtered;
+}
+
+// ── Build compact result summary for OpenAI ───────────────────────────────────
 
 function buildResultsSummary(results: Listing[]): string {
   if (results.length === 0) return 'No listings found matching the search criteria.';
@@ -376,17 +533,29 @@ function buildResultsSummary(results: Listing[]): string {
   }).join('\n');
 }
 
-// ── Mock response generator ────────────────────────────────────────────────────
+// ── Mock response (no API key or streaming fallback) ──────────────────────────
 
 function generateMockResponse(intent: AIIntent, count: number): string {
   const city = intent.city ? ` in ${intent.city}` : '';
-  if (count === 0) return `I couldn't find any listings${city} matching your search. Try a different city or broaden your search terms!`;
-  const plural = (n: number, word: string) => `${n} ${word}${n !== 1 ? 's' : ''}`;
-  if (intent.type === 'business') return `I found ${plural(count, intent.category || 'business')}${city}! Check out these community-verified listings below.`;
-  if (intent.type === 'event') return `I found ${plural(count, 'upcoming event')}${city}! Great community gatherings to explore.`;
-  if (intent.type === 'housing') return `I found ${plural(count, 'housing listing')}${city}! Here are the available ${intent.listingType === 'sale' ? 'properties for sale' : 'rentals'}.`;
-  if (intent.type === 'job') return `I found ${plural(count, 'job opportunity')}${city}! Here are the positions that match your search.`;
-  return `I found ${plural(count, 'listing')}${city} across our community directory!`;
+  const priceLabel = intent.priceMax ? ` under $${intent.priceMax.toLocaleString()}` : '';
+
+  if (count === 0) {
+    if (intent.type === 'housing' && intent.priceMax) {
+      return `I couldn't find rentals${priceLabel}${city}. Try increasing your budget or checking a nearby city.`;
+    }
+    return `I couldn't find any listings${city} matching your search. Try a different city or broaden your search terms!`;
+  }
+
+  const s = count === 1 ? '' : 's';
+  if (intent.type === 'housing') {
+    const rentLabel = intent.listingType === 'sale' ? 'propert' : 'rental';
+    const rentS = count === 1 ? 'y' : 'ies';
+    return `I found ${count} ${rentLabel}${rentS}${priceLabel}${city}! Here are the available listings below.`;
+  }
+  if (intent.type === 'business') return `I found ${count} ${intent.category || 'business'}${s}${city}! Check out these community-verified listings.`;
+  if (intent.type === 'event') return `I found ${count} upcoming event${s}${city}! Great community gatherings to explore.`;
+  if (intent.type === 'job') return `I found ${count} job opportunit${count === 1 ? 'y' : 'ies'}${city}! Here are positions that match your search.`;
+  return `I found ${count} listing${s}${city} across our community directory!`;
 }
 
 // ── POST handler ───────────────────────────────────────────────────────────────
@@ -419,6 +588,12 @@ export async function POST(request: NextRequest) {
     } else {
       intent = extractIntentFallback(safeMessage, activeCity, activeState);
     }
+
+    // Safety: always run regex price extraction and use it if OpenAI missed it
+    const lower = safeMessage.toLowerCase();
+    if (intent.priceMax === null) intent.priceMax = extractPriceMax(lower);
+    if (intent.priceMin === null) intent.priceMin = extractPriceMin(lower);
+
     console.log('AI INTENT', JSON.stringify(intent));
 
     // ── Step 2: Query static data + Supabase ─────────────────────────────────
@@ -438,10 +613,10 @@ export async function POST(request: NextRequest) {
     };
     console.log('AI FILTERS', JSON.stringify(filters));
 
-    // Static data search (already applies all filters including keywords)
+    // Static data search (applies all filters internally)
     const staticResults = searchDirectory(filters);
 
-    // Supabase search (structural filters; keyword filter applied in-memory below)
+    // Supabase search (structural + price filters at DB level)
     let supabaseResults: Listing[] = [];
     if (supabase) {
       supabaseResults = await querySupabaseListings(supabase, intent);
@@ -450,30 +625,47 @@ export async function POST(request: NextRequest) {
     // Keyword filter Supabase results in-memory
     let filteredSupabase = supabaseResults;
     if (intent.keywords.length > 0) {
-      const kw = supabaseResults.filter((item) => {
+      const kwFiltered = supabaseResults.filter((item) => {
         const str = JSON.stringify(item).toLowerCase();
         return intent.keywords.some((k) => str.includes(k.toLowerCase()));
       });
-      if (kw.length > 0) filteredSupabase = kw;
+      if (kwFiltered.length > 0) filteredSupabase = kwFiltered;
     }
 
-    // Merge: Supabase first (user-submitted, newer), then static — dedup by id
+    // Merge: Supabase first (newer/user-submitted), then static — dedup by id
     const seenIds = new Set<string>();
-    const allResults: Listing[] = [];
+    const rawResults: Listing[] = [];
     for (const item of [...filteredSupabase, ...staticResults]) {
       if (!seenIds.has(item.id)) {
         seenIds.add(item.id);
-        allResults.push(item);
+        rawResults.push(item);
       }
     }
 
-    const topResults = allResults.slice(0, 8);
-    const totalFound = allResults.length;
+    console.log('RAW RESULTS', JSON.stringify(rawResults.map((r) => ({
+      id: r.id,
+      type: r.type,
+      city: 'city' in r ? (r as { city: string }).city : '',
+      price: r.type === 'housing' ? (r as Housing).price : undefined,
+    }))));
+
+    // ── Strict filter (definitive — cannot be bypassed by bad AI output) ──────
+    const filteredResults = applyStrictFilters(rawResults, intent);
+
+    console.log('FILTERED RESULTS', JSON.stringify(filteredResults.map((r) => ({
+      id: r.id,
+      type: r.type,
+      price: r.type === 'housing' ? (r as Housing).price : undefined,
+    }))));
+
+    const topResults = filteredResults.slice(0, 8);
+    const totalFound = filteredResults.length;
 
     console.log('SUPABASE RESULTS', JSON.stringify({
       supabaseCount: supabaseResults.length,
       staticCount: staticResults.length,
-      totalFound,
+      rawCount: rawResults.length,
+      filteredCount: totalFound,
     }));
 
     // ── No API key: mock streaming ────────────────────────────────────────────
@@ -494,20 +686,25 @@ export async function POST(request: NextRequest) {
     const openai = new OpenAI({ apiKey });
     const resultsSummary = buildResultsSummary(topResults);
 
-    const systemPrompt = `You are Community Connect AI — a warm, knowledgeable assistant for Muslim Americans and diverse communities.
+    const priceContext = intent.priceMax
+      ? `\nPRICE FILTER APPLIED: only listings at or below $${intent.priceMax.toLocaleString()} are shown.`
+      : '';
 
-ACTUAL SEARCH RESULTS (${topResults.length} shown of ${totalFound} found):
+    const systemPrompt = `You are Community Connect AI — a warm, concise assistant for Muslim Americans and diverse communities.
+
+ACTUAL SEARCH RESULTS (${topResults.length} shown of ${totalFound} that match ALL filters):
 ${resultsSummary}
-
+${priceContext}
 ACTIVE USER LOCATION: ${activeCity || 'unknown'}, ${activeState || 'unknown'}
 
 RESPONSE RULES:
-1. 2–3 sentences maximum, warm and direct
-2. State how many results were found and for which city
-3. Cards appear automatically below — do NOT list them in your text
-4. If zero results: acknowledge warmly, suggest nearby city or different search term
-5. NEVER invent listings not in the search results above
-6. Stay on topic — if user asked for jobs, talk about jobs only`;
+1. Maximum 2–3 sentences, warm and direct
+2. State exact count and city. Be specific — say "1 rental" not "some rentals"
+3. If priceMax was set, mention the budget (e.g. "under $2,500")
+4. Result cards appear automatically — do NOT list them in your text
+5. If zero results: say clearly "I couldn't find [type] under $[budget] in [city]" then suggest increasing budget or trying nearby city
+6. NEVER invent listings. Only describe what is in the search results above
+7. Stay on topic — jobs query → talk only about jobs, housing → only housing`;
 
     const openaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
@@ -520,8 +717,8 @@ RESPONSE RULES:
         const stream = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: openaiMessages,
-          temperature: 0.6,
-          max_tokens: 180,
+          temperature: 0.5,
+          max_tokens: 160,
           stream: true,
         });
 
