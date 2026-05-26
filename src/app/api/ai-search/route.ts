@@ -152,28 +152,23 @@ function applyKeywordFilter(
     score: s.score,
   }))));
 
-  const matched = scored
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map((s) => s.item);
-
-  const rejected = scored.filter((s) => s.score === 0).map((s) => s.item);
-
-  console.log('REJECTED RESULTS', JSON.stringify(rejected.map((r) => ({
-    title: getItemTitle(r),
-    type: r.type,
-  }))));
-
-  if (matched.length > 0) return matched;
-
-  // No keyword matches found
   if (isStrictSearch(intent)) {
-    // Specific product/job search: never fall back to unrelated results
-    return [];
+    // Strict: specific products (coffee, pizza, gym, warehouse...) — only matching results.
+    // If nothing matches, return empty — "no coffee found" is the correct answer.
+    const matched = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score).map((s) => s.item);
+    const rejected = scored.filter((s) => s.score === 0).map((s) => s.item);
+
+    console.log('REJECTED RESULTS', JSON.stringify(rejected.map((r) => ({
+      title: getItemTitle(r), type: r.type,
+    }))));
+
+    return matched;
   }
 
-  // Generic keyword (e.g. "weekend", "community") with no match → keep all
-  return results;
+  // Non-strict: generic searches (restaurant, halal food, events this weekend...).
+  // Sort by keyword relevance for ranking, but KEEP ALL results.
+  // applyStrictFilters handles the actual narrowing via category/type filters.
+  return scored.sort((a, b) => b.score - a.score).map((s) => s.item);
 }
 
 // ── Price parsing ──────────────────────────────────────────────────────────────
@@ -253,18 +248,24 @@ Rules:
   * CRITICAL: Do NOT use "restaurant" for coffee/cafe searches. Coffee shops are NOT restaurants.
   * CRITICAL: For coffee, cafe, espresso, latte, yoga, gym, barber, salon, pharmacy → set category=null and put the specific term in keywords instead
   * Use category only for broad searches: "restaurant" → halal food, "mosque" → Islamic centers
-- keywords: up to 4 terms. IMPORTANT: put specific product/service names here (coffee, pizza, gym, barber, yoga, etc.)
+- keywords: up to 4 terms. Rules for keywords:
+  * DO add specific product/service names: coffee, pizza, gym, barber, yoga, sushi, etc.
+  * DO add ingredient/quality modifiers: halal, organic, vegan, etc.
+  * DO NOT add broad category names that are already in "category": do not add "restaurant", "mosque", "grocery", "job", "housing", "food", "eat" as keywords
+  * DO NOT add the city name as a keyword
 - city: extract if user names one, otherwise use default "${defaultCity || 'unknown'}"
 - state: use default "${defaultState || 'unknown'}" unless user names another
 - priceMax: extract from "less than X", "under X", "below X", "max X", "budget X", "no more than X", "cheaper than X", "up to X", "at most X", "X or less" — set to NUMBER X only
 - priceMin: extract from "more than X", "over X", "above X", "at least X", "minimum X", "paying over X" — set to NUMBER X
 
 Examples:
+- "I am looking for restaurant" → type="business", category="restaurant", keywords=[]
 - "coffee in New York" → type="business", category=null, keywords=["coffee","cafe"]
 - "halal restaurant" → type="business", category="restaurant", keywords=["halal"]
 - "mosque near me" → type="business", category="mosque", keywords=[]
 - "warehouse job" → type="job", keywords=["warehouse"]
-- "rent under 2500" → type="housing", listingType="rent", priceMax=2500, keywords=[]`;
+- "rent under 2500" → type="housing", listingType="rent", priceMax=2500, keywords=[]
+- "places to eat" → type="business", category="restaurant", keywords=[]`;
 
   try {
     const msgs: OpenAI.Chat.ChatCompletionMessageParam[] = [
@@ -733,6 +734,7 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabase();
 
     console.log('QUERY', safeMessage);
+    console.log('OPENAI_USED', !!apiKey);
 
     // ── Step 1: Extract intent ────────────────────────────────────────────────
     let intent: AIIntent;
@@ -748,7 +750,7 @@ export async function POST(request: NextRequest) {
     if (intent.priceMax === null) intent.priceMax = extractPriceMax(lower);
     if (intent.priceMin === null) intent.priceMin = extractPriceMin(lower);
 
-    // Safety: if OpenAI set category="restaurant" for a coffee search, override it
+    // Safety: if OpenAI set category="restaurant" for a coffee/cafe search, override it
     if (
       intent.category === 'restaurant' &&
       intent.keywords.some((kw) => COFFEE_WORDS.includes(kw.toLowerCase()) || CAFE_WORDS.includes(kw.toLowerCase()))
@@ -756,7 +758,18 @@ export async function POST(request: NextRequest) {
       intent.category = null;
     }
 
-    console.log('AI INTENT', JSON.stringify(intent));
+    // Safety: remove broad category words from keywords — they're already in intent.category
+    // and cause false strictness when OpenAI adds them (e.g. keywords:["restaurant"] for restaurant search)
+    const GENERIC_CATEGORY_WORDS = new Set([
+      'restaurant', 'restaurants', 'food', 'eat', 'eating', 'dining', 'dine',
+      'mosque', 'mosques', 'grocery', 'groceries', 'groceries', 'market',
+      'job', 'jobs', 'work', 'employment', 'career', 'careers',
+      'housing', 'house', 'home', 'apartment', 'apartments', 'rent', 'rental',
+      'event', 'events', 'places',
+    ]);
+    intent.keywords = intent.keywords.filter((kw) => !GENERIC_CATEGORY_WORDS.has(kw.toLowerCase()));
+
+    console.log('AI_INTENT', JSON.stringify(intent));
 
     // ── Step 2: Query static data + Supabase ─────────────────────────────────
     const filters: SearchFilters = {
@@ -781,6 +794,11 @@ export async function POST(request: NextRequest) {
       supabaseResults = await querySupabaseListings(supabase, intent);
     }
 
+    console.log('SUPABASE_RESULTS', JSON.stringify({
+      count: supabaseResults.length,
+      titles: supabaseResults.map(getItemTitle),
+    }));
+
     // Merge: Supabase first (newer/user-submitted), then static — dedup by id
     const seenIds = new Set<string>();
     const rawResults: Listing[] = [];
@@ -801,10 +819,10 @@ export async function POST(request: NextRequest) {
     // ── Step 3: Keyword scoring + strict filter ───────────────────────────────
     const keywordFiltered = applyKeywordFilter(rawResults, intent);
 
-    // ── Step 4: Structural strict filters ────────────────────────────────────
+    // ── Step 4: Structural strict filters (type, city, price, category...) ───
     const strictFiltered = applyStrictFilters(keywordFiltered, intent);
 
-    console.log('FINAL RESULTS', JSON.stringify(strictFiltered.map((r) => ({
+    console.log('FINAL_RESULTS', JSON.stringify(strictFiltered.map((r) => ({
       title: getItemTitle(r),
       type: r.type,
       price: r.type === 'housing' ? (r as Housing).price : undefined,
